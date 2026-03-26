@@ -1,0 +1,2629 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Claude Code Agent Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  --bg: #0a0e17;
+  --surface: #111827;
+  --surface2: #1a2332;
+  --border: #1e2d3d;
+  --text: #e2e8f0;
+  --text-dim: #64748b;
+  --accent: #3b82f6;
+  --green: #10b981;
+  --yellow: #f59e0b;
+  --red: #ef4444;
+  --purple: #8b5cf6;
+  --cyan: #06b6d4;
+  --orange: #f97316;
+  --sidebar-w: 220px;
+}
+
+html, body {
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  overflow: hidden;
+}
+
+/* ===== SIDEBAR ===== */
+.sidebar {
+  position: fixed;
+  top: 0; left: 0; bottom: 0;
+  width: var(--sidebar-w);
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  z-index: 100;
+  transition: transform 0.3s;
+}
+
+.sidebar-logo {
+  padding: 24px 20px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.sidebar-logo .logo-main {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--cyan);
+  letter-spacing: 3px;
+  text-shadow: 0 0 20px rgba(6,182,212,0.5), 0 0 40px rgba(6,182,212,0.2);
+}
+
+.sidebar-logo .logo-sub {
+  font-size: 10px;
+  color: var(--text-dim);
+  letter-spacing: 2px;
+  margin-top: 2px;
+}
+
+.sidebar-nav {
+  flex: 1;
+  padding: 12px 0;
+  overflow-y: auto;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 20px;
+  cursor: pointer;
+  color: var(--text-dim);
+  font-size: 12px;
+  font-weight: 500;
+  border-left: 3px solid transparent;
+  transition: all 0.15s;
+  user-select: none;
+}
+
+.nav-item:hover {
+  color: var(--text);
+  background: rgba(255,255,255,0.03);
+}
+
+.nav-item.active {
+  color: var(--accent);
+  background: rgba(59,130,246,0.08);
+  border-left-color: var(--accent);
+}
+
+.nav-item svg {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  opacity: 0.7;
+}
+
+.nav-item.active svg { opacity: 1; }
+
+.sidebar-footer {
+  padding: 16px 20px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--red);
+  flex-shrink: 0;
+}
+
+.status-dot.connected {
+  background: var(--green);
+  box-shadow: 0 0 8px rgba(16,185,129,0.6);
+}
+
+/* ===== MAIN AREA ===== */
+.main {
+  margin-left: var(--sidebar-w);
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.header {
+  padding: 16px 28px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--surface);
+  flex-shrink: 0;
+}
+
+.breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.breadcrumb .bc-root { color: var(--text-dim); }
+.breadcrumb .bc-sep { color: var(--text-dim); opacity: 0.4; }
+.breadcrumb .bc-page { color: var(--text); font-weight: 600; }
+
+.header-stats {
+  display: flex;
+  gap: 16px;
+  font-size: 11px;
+}
+
+.header-stat {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-dim);
+}
+
+.header-stat .dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+}
+
+.content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px 28px;
+}
+
+/* ===== PAGE: DASHBOARD ===== */
+.stat-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 16px;
+  margin-bottom: 32px;
+}
+
+.stat-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 20px;
+}
+
+.stat-card .stat-label {
+  font-size: 11px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 8px;
+}
+
+.stat-card .stat-value {
+  font-size: 32px;
+  font-weight: 700;
+}
+
+.stat-card.active .stat-value { color: var(--yellow); text-shadow: 0 0 15px rgba(245,158,11,0.4); }
+.stat-card.completed .stat-value { color: var(--green); text-shadow: 0 0 15px rgba(16,185,129,0.4); }
+.stat-card.failed .stat-value { color: var(--red); text-shadow: 0 0 15px rgba(239,68,68,0.4); }
+.stat-card.total .stat-value { color: var(--text-dim); }
+
+.section-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.section-title .count {
+  font-size: 11px;
+  color: var(--text-dim);
+  background: var(--surface2);
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
+/* ===== AGENT CARDS ===== */
+.agent-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 14px;
+  margin-bottom: 32px;
+}
+
+.agent-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  transition: border-color 0.2s;
+}
+
+.agent-card:hover { border-color: var(--accent); }
+
+.agent-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.agent-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.badge-general { background: rgba(59,130,246,0.15); color: var(--accent); }
+.badge-parser { background: rgba(139,92,246,0.15); color: var(--purple); }
+.badge-research { background: rgba(6,182,212,0.15); color: var(--cyan); }
+.badge-code { background: rgba(249,115,22,0.15); color: var(--orange); }
+.badge-default { background: rgba(100,116,139,0.15); color: var(--text-dim); }
+
+.agent-status-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.dot-running { background: var(--yellow); box-shadow: 0 0 8px rgba(245,158,11,0.6); animation: pulse 2s infinite; }
+.dot-completed { background: var(--green); }
+.dot-failed { background: var(--red); box-shadow: 0 0 8px rgba(239,68,68,0.4); }
+.dot-pending { background: var(--text-dim); }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.agent-desc {
+  font-size: 12px;
+  color: var(--text);
+  margin-bottom: 8px;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.agent-meta {
+  display: flex;
+  gap: 12px;
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+.agent-meta span { display: flex; align-items: center; gap: 4px; }
+
+.bg-indicator {
+  font-size: 9px;
+  color: var(--purple);
+  background: rgba(139,92,246,0.12);
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
+/* ===== EVENT LOG ===== */
+.log-container {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.log-entries {
+  max-height: 400px;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+
+.log-entry {
+  display: flex;
+  gap: 10px;
+  padding: 6px 16px;
+  font-size: 11px;
+  border-bottom: 1px solid rgba(30,45,61,0.4);
+}
+
+.log-entry:hover { background: rgba(255,255,255,0.02); }
+
+.log-time { color: var(--text-dim); flex-shrink: 0; width: 70px; }
+.log-agent {
+  flex-shrink: 0;
+  width: 90px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.log-agent.agent-system { color: var(--text-dim); }
+.log-agent.agent-ba-lead { color: var(--cyan); }
+.log-agent.agent-dev-lead { color: var(--accent); }
+.log-agent.agent-qc-lead { color: var(--purple); }
+.log-agent.agent-general { color: var(--orange); }
+
+.log-msg { color: var(--text); flex: 1; word-break: break-word; }
+.log-entry.level-error .log-msg { color: var(--red); }
+.log-entry.level-warn .log-msg { color: var(--yellow); }
+
+/* ===== PIPELINE ===== */
+.pipeline-view {
+  margin-bottom: 24px;
+}
+
+.pipeline-steps {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  margin-bottom: 16px;
+  overflow-x: auto;
+  padding: 8px 0;
+}
+
+.pipe-step {
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+
+.pipe-node {
+  background: var(--surface);
+  border: 2px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 20px;
+  text-align: center;
+  min-width: 120px;
+  transition: all 0.3s;
+}
+
+.pipe-node.active {
+  border-color: var(--yellow);
+  box-shadow: 0 0 15px rgba(245,158,11,0.2);
+}
+
+.pipe-node.done {
+  border-color: var(--green);
+  background: rgba(16,185,129,0.05);
+}
+
+.pipe-node.failed {
+  border-color: var(--red);
+  background: rgba(239,68,68,0.05);
+}
+
+.pipe-node-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.pipe-node-status {
+  font-size: 10px;
+  color: var(--text-dim);
+  margin-top: 4px;
+}
+
+.pipe-arrow {
+  color: var(--text-dim);
+  font-size: 18px;
+  padding: 0 8px;
+  flex-shrink: 0;
+}
+
+.pipe-arrow.done { color: var(--green); }
+
+.pipeline-progress {
+  height: 4px;
+  background: var(--surface2);
+  border-radius: 2px;
+  margin-bottom: 24px;
+  overflow: hidden;
+}
+
+.pipeline-progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, var(--cyan), var(--accent));
+  border-radius: 2px;
+  transition: width 0.5s;
+}
+
+.pipeline-panels {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.panel-header {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.panel-body {
+  padding: 16px;
+  max-height: 300px;
+  overflow-y: auto;
+  font-size: 12px;
+}
+
+/* ===== SKILLS / PLUGINS / MEMORY LIST ===== */
+.item-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.list-item {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  transition: border-color 0.2s;
+}
+
+.list-item:hover { border-color: var(--accent); }
+
+.list-item-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.list-item-name {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.list-item-desc {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-top: 2px;
+}
+
+.list-item-path {
+  font-size: 10px;
+  color: var(--text-dim);
+  opacity: 0.6;
+  margin-top: 4px;
+  word-break: break-all;
+}
+
+.list-item-toggle {
+  color: var(--text-dim);
+  font-size: 18px;
+  transition: transform 0.2s;
+  flex-shrink: 0;
+}
+
+.list-item-toggle.open { transform: rotate(90deg); }
+
+.list-item-content {
+  display: none;
+  border-top: 1px solid var(--border);
+  padding: 16px 18px;
+  background: var(--bg);
+}
+
+.list-item-content.open { display: block; }
+
+.list-item-content pre {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.6;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+/* ===== TOKEN USAGE ===== */
+.token-badge {
+  font-size: 10px;
+  color: var(--cyan);
+  background: rgba(6,182,212,0.1);
+  padding: 2px 6px;
+  border-radius: 3px;
+  white-space: nowrap;
+}
+
+.stat-card.tokens .stat-value { color: var(--cyan); text-shadow: 0 0 15px rgba(6,182,212,0.4); }
+.stat-card.tokens .stat-sub { font-size: 10px; color: var(--text-dim); margin-top: 4px; }
+
+/* ===== MEMORY DELETE ===== */
+.mem-delete-btn {
+  background: none;
+  border: 1px solid rgba(239,68,68,0.3);
+  color: var(--red);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s;
+  margin-left: 8px;
+  flex-shrink: 0;
+}
+.mem-delete-btn:hover {
+  background: rgba(239,68,68,0.15);
+  border-color: var(--red);
+}
+
+.mem-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ===== TOKEN USAGE TABLE ===== */
+.token-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.token-table th {
+  text-align: left;
+  padding: 10px 12px;
+  background: var(--surface2);
+  color: var(--text-dim);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-size: 10px;
+  border-bottom: 1px solid var(--border);
+}
+.token-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+}
+.token-table tr:last-child td { border-bottom: none; }
+.token-table tr:hover td { background: rgba(255,255,255,0.02); }
+.token-table .tok-num { text-align: right; font-variant-numeric: tabular-nums; }
+.token-table .tok-cyan { color: var(--cyan); }
+.token-table .tok-green { color: var(--green); }
+.token-table .tok-purple { color: var(--purple); }
+.token-table .tok-total { font-weight: 700; color: var(--cyan); }
+.token-table .tok-snippet {
+  max-width: 250px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-dim);
+}
+.token-summary-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+  margin-bottom: 24px;
+}
+.token-summary-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+}
+.token-summary-card .tsc-label {
+  font-size: 10px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 6px;
+}
+.token-summary-card .tsc-value {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--cyan);
+}
+.token-summary-card .tsc-sub {
+  font-size: 10px;
+  color: var(--text-dim);
+  margin-top: 4px;
+}
+.token-refresh-btn {
+  background: rgba(6,182,212,0.1);
+  border: 1px solid rgba(6,182,212,0.3);
+  color: var(--cyan);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  padding: 6px 14px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.token-refresh-btn:hover { background: rgba(6,182,212,0.2); }
+
+/* ===== CUSTOM AGENTS ===== */
+.custom-agent-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 18px;
+  transition: border-color 0.2s;
+}
+.custom-agent-card:hover { border-color: var(--cyan); }
+.custom-agent-card .ca-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+.custom-agent-card .ca-name {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--cyan);
+}
+.custom-agent-card .ca-source {
+  font-size: 9px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.ca-source-user { background: rgba(16,185,129,0.15); color: var(--green); }
+.ca-source-plugin { background: rgba(139,92,246,0.15); color: var(--purple); }
+.custom-agent-card .ca-desc {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-bottom: 10px;
+  line-height: 1.5;
+}
+.custom-agent-card .ca-meta {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 10px;
+  color: var(--text-dim);
+}
+.custom-agent-card .ca-meta span {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.custom-agent-card .ca-invoke {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+}
+.ca-invoke code {
+  background: var(--bg);
+  padding: 4px 10px;
+  border-radius: 4px;
+  color: var(--cyan);
+  font-family: 'JetBrains Mono', monospace;
+  user-select: all;
+}
+
+/* ===== SETTINGS JSON ===== */
+.json-viewer {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 20px;
+  overflow-x: auto;
+}
+
+.json-viewer pre {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.json-key { color: var(--accent); }
+.json-string { color: var(--green); }
+.json-number { color: var(--cyan); }
+.json-boolean { color: var(--yellow); }
+.json-null { color: var(--text-dim); }
+.json-brace { color: var(--text-dim); }
+
+/* ===== EMPTY STATE ===== */
+.empty-state {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--text-dim);
+}
+
+.empty-state svg {
+  width: 48px;
+  height: 48px;
+  margin-bottom: 16px;
+  opacity: 0.3;
+}
+
+.empty-state p {
+  font-size: 13px;
+  margin-top: 8px;
+}
+
+/* ===== PLUGIN ITEM ===== */
+.plugin-status {
+  font-size: 10px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-weight: 600;
+}
+
+.plugin-enabled { background: rgba(16,185,129,0.15); color: var(--green); }
+.plugin-disabled { background: rgba(100,116,139,0.15); color: var(--text-dim); }
+
+/* ===== SCROLLBAR ===== */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-dim); }
+
+/* ===== RESPONSIVE ===== */
+.menu-toggle {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  cursor: pointer;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  margin-right: 12px;
+}
+
+@media (max-width: 1024px) {
+  .sidebar { transform: translateX(-100%); }
+  .sidebar.open { transform: translateX(0); }
+  .main { margin-left: 0; }
+  .header { padding: 12px 16px; }
+  .content { padding: 16px; }
+  .pipeline-panels { grid-template-columns: 1fr; }
+  .menu-toggle { display: flex; }
+}
+
+.overlay {
+  display: none;
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.5);
+  z-index: 99;
+}
+
+.overlay.show { display: block; }
+
+/* ===== LOADING SPINNER ===== */
+.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+  color: var(--text-dim);
+  gap: 8px;
+}
+
+.spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ===== DETAIL VIEW (inline page, not overlay) ===== */
+.detail-overlay { display: none; }
+
+.detail-panel {
+  display: none;
+  flex-direction: column;
+  height: 100%;
+}
+.detail-panel.open {
+  display: flex;
+}
+
+/* Detail panel uses inner sidebar + content layout */
+.dp-layout {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  /* Counteract .content padding so we go edge-to-edge */
+  margin: -24px -28px;
+  height: calc(100% + 48px);
+}
+@media (max-width: 1023px) {
+  .dp-layout { margin: -16px; height: calc(100% + 32px); }
+}
+
+/* Left: agent list sidebar inside detail panel */
+.dp-agent-list {
+  width: 240px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border);
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.dp-agent-list-header {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--text-dim);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+}
+.dp-agent-list-header .dp-back {
+  background: none; border: none; color: var(--accent); cursor: pointer;
+  font-family: inherit; font-size: 11px; padding: 2px 8px;
+}
+.dp-agent-list-header .dp-back:hover { color: var(--cyan); }
+
+.dp-agent-items {
+  flex: 1;
+  overflow-y: auto;
+}
+.dp-agent-item {
+  padding: 10px 16px;
+  cursor: pointer;
+  border-bottom: 1px solid rgba(30,45,61,0.3);
+  border-left: 3px solid transparent;
+  transition: background 0.1s;
+}
+.dp-agent-item:hover { background: var(--surface-2); }
+.dp-agent-item.active {
+  background: var(--surface-2);
+  border-left-color: var(--cyan);
+}
+.dp-agent-item .dai-status {
+  display: inline-block;
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+.dp-agent-item .dai-status.running { background: var(--yellow); animation: pulse 1.5s infinite; }
+.dp-agent-item .dai-status.completed { background: var(--green); }
+.dp-agent-item .dai-status.failed { background: var(--red); }
+.dp-agent-item .dai-status.pending { background: var(--text-dim); opacity: 0.4; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+.dp-agent-item .dai-desc {
+  font-size: 11px;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.dp-agent-item .dai-meta {
+  font-size: 9px;
+  color: var(--text-dim);
+  margin-top: 3px;
+}
+
+/* Right: detail content area */
+.dp-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.detail-panel-header {
+  padding: 12px 24px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+}
+.detail-panel-header .dp-title {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.detail-panel-header .dp-close {
+  background: var(--surface-2); border: 1px solid var(--border); color: var(--text-dim);
+  cursor: pointer; font-size: 11px; padding: 5px 12px; border-radius: 4px;
+  font-family: inherit;
+}
+.detail-panel-header .dp-close:hover { color: var(--text); border-color: var(--text-dim); }
+
+.dp-meta {
+  padding: 10px 28px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  display: flex;
+  gap: 20px;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+.dp-meta .dp-meta-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.dp-meta .dp-label { color: var(--text-dim); }
+
+/* Tabs inside detail panel */
+.dp-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  flex-shrink: 0;
+  padding: 0 28px;
+}
+.dp-tab {
+  padding: 10px 20px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-dim);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+}
+.dp-tab:hover { color: var(--text); }
+.dp-tab.active { color: var(--cyan); border-bottom-color: var(--cyan); }
+
+/* Main content area (logs/summary) */
+.dp-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0;
+  min-height: 0;
+}
+.dp-body .dp-section {
+  padding: 16px 28px;
+}
+.dp-body .dp-section-title {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--text-dim);
+  margin-bottom: 8px;
+}
+
+.dp-log-entries {
+  max-height: none;
+  overflow-y: auto;
+}
+.dp-log-entries .log-entry {
+  padding: 3px 20px;
+  font-size: 11px;
+}
+
+/* Terminal section — fills remaining space when active */
+.dp-terminal {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--border);
+  background: var(--bg);
+  min-height: 0;
+}
+.dp-terminal-output {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 24px;
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text-dim);
+}
+.dp-terminal-output .term-cmd {
+  color: var(--cyan);
+  font-weight: 600;
+  padding: 4px 0 2px;
+}
+.dp-terminal-output .term-stdout { color: var(--text); }
+.dp-terminal-output .term-stderr { color: var(--red); }
+.dp-terminal-output .term-err { color: var(--red); font-style: italic; }
+.dp-terminal-output .term-cmd + .term-stdout,
+.dp-terminal-output .term-cmd + .term-stderr { margin-bottom: 12px; }
+
+.dp-terminal-input {
+  display: flex;
+  align-items: center;
+  border-top: 2px solid var(--border);
+  padding: 0;
+  background: var(--surface);
+  flex-shrink: 0;
+}
+.dp-terminal-input .term-prompt {
+  padding: 16px 0 16px 24px;
+  color: var(--cyan);
+  font-size: 15px;
+  font-weight: 700;
+  flex-shrink: 0;
+  user-select: none;
+}
+.dp-terminal-input input {
+  flex: 1;
+  background: none;
+  border: none;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 15px;
+  padding: 16px 24px 16px 8px;
+  outline: none;
+}
+.dp-terminal-input input::placeholder { color: var(--text-dim); opacity: 0.4; }
+.dp-terminal-input .term-run {
+  background: var(--accent); border: none; border-radius: 4px;
+  color: #fff; cursor: pointer;
+  padding: 10px 20px; font-size: 12px; font-family: inherit;
+  font-weight: 600; margin-right: 12px;
+  text-transform: uppercase; letter-spacing: 0.5px;
+}
+.dp-terminal-input .term-run:hover { background: var(--cyan); }
+
+/* Make agent cards clickable */
+.agent-card { cursor: pointer; transition: border-color 0.15s, box-shadow 0.15s; }
+.agent-card:hover { border-color: var(--accent); box-shadow: 0 0 12px rgba(59,130,246,0.1); }
+</style>
+</head>
+<body>
+
+<div class="overlay" id="overlay" onclick="toggleSidebar()"></div>
+
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-logo">
+    <div class="logo-main">CLAUDE</div>
+    <div class="logo-sub">DASHBOARD</div>
+  </div>
+  <nav class="sidebar-nav">
+    <div class="nav-item active" data-page="dashboard" onclick="navigate('dashboard')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+      Dashboard
+    </div>
+    <div class="nav-item" data-page="custom-agents" onclick="navigate('custom-agents')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a4 4 0 014 4v2a4 4 0 01-8 0V6a4 4 0 014-4z"/><path d="M6 21v-2a4 4 0 014-4h4a4 4 0 014 4v2"/></svg>
+      Agents (@)
+    </div>
+    <div class="nav-item" data-page="agents" onclick="navigate('agents')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"/><line x1="9" y1="9" x2="9" y2="9.01"/><line x1="15" y1="9" x2="15" y2="9.01"/><line x1="9" y1="15" x2="9" y2="15.01"/><line x1="15" y1="15" x2="15" y2="15.01"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="12" y1="4" x2="12" y2="20"/></svg>
+      Subagents
+    </div>
+    <div class="nav-item" data-page="pipeline" onclick="navigate('pipeline')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="6" r="2"/><circle cx="19" cy="12" r="2"/><circle cx="12" cy="18" r="2"/><line x1="7" y1="11" x2="10" y2="7"/><line x1="14" y1="7" x2="17" y2="11"/><line x1="7" y1="13" x2="10" y2="17"/><line x1="14" y1="17" x2="17" y2="13"/></svg>
+      Pipeline
+    </div>
+    <div class="nav-item" data-page="skills" onclick="navigate('skills')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+      Skills
+    </div>
+    <div class="nav-item" data-page="plugins" onclick="navigate('plugins')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4m0 12v4M2 12h4m12 0h4"/><circle cx="12" cy="12" r="4"/><path d="M8 8L6 6m12 0l-2 2m0 8l2 2M6 18l2-2"/></svg>
+      Plugins
+    </div>
+    <div class="nav-item" data-page="settings" onclick="navigate('settings')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+      Settings
+    </div>
+    <div class="nav-item" data-page="tokens" onclick="navigate('tokens')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8"/><path d="M12 8v8m-2-6h4m-4 4h4"/></svg>
+      Token Usage
+    </div>
+    <div class="nav-item" data-page="memory" onclick="navigate('memory')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12h6m-3-3v6"/><circle cx="12" cy="12" r="9"/><path d="M12 3c-1.5 2-2.5 4.5-2.5 9s1 7 2.5 9c1.5-2 2.5-4.5 2.5-9s-1-7-2.5-9z"/></svg>
+      Memory
+    </div>
+    <div class="nav-item" data-page="log" onclick="navigate('log')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="7" y1="8" x2="7" y2="8.01"/><line x1="10" y1="8" x2="17" y2="8"/><line x1="7" y1="12" x2="7" y2="12.01"/><line x1="10" y1="12" x2="17" y2="12"/><line x1="7" y1="16" x2="7" y2="16.01"/><line x1="10" y1="16" x2="17" y2="16"/></svg>
+      Event Log
+    </div>
+  </nav>
+  <div class="sidebar-footer">
+    <div class="status-dot" id="connDot"></div>
+    <span id="connText">Connecting...</span>
+  </div>
+</aside>
+
+<main class="main">
+  <div class="header">
+    <div style="display:flex;align-items:center">
+      <button class="menu-toggle" onclick="toggleSidebar()">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+      <div class="breadcrumb">
+        <span class="bc-root">Agent Dashboard</span>
+        <span class="bc-sep">/</span>
+        <span class="bc-page" id="bcPage">Dashboard</span>
+      </div>
+    </div>
+    <div class="header-stats" id="headerStats">
+      <div class="header-stat"><div class="dot" style="background:var(--yellow)"></div><span id="hActive">0</span> active</div>
+      <div class="header-stat"><div class="dot" style="background:var(--green)"></div><span id="hCompleted">0</span> done</div>
+      <div class="header-stat"><div class="dot" style="background:var(--red)"></div><span id="hFailed">0</span> failed</div>
+    </div>
+  </div>
+
+  <div class="content" id="content"></div>
+</main>
+
+<script>
+// ===== STATE =====
+let currentPage = 'dashboard';
+let state = { agents: [], activeCount: 0, completedCount: 0, failedCount: 0, totalCount: 0, pipeline: null, meta: {}, log: [] };
+let connected = false;
+let cache = { skills: null, plugins: null, settings: null, memory: null, tokenUsage: null, customAgents: null, fileContents: {} };
+
+// ===== NAVIGATION =====
+function navigate(page) {
+  currentPage = page;
+  // Highlight "agents" nav when viewing agent-detail
+  var highlightPage = (page === 'agent-detail') ? 'agents' : page;
+  if (page === 'custom-agents') highlightPage = 'custom-agents';
+  document.querySelectorAll('.nav-item').forEach(function(el) {
+    el.classList.toggle('active', el.dataset.page === highlightPage);
+  });
+  var label = page === 'agent-detail' ? 'Agent Detail' : page.charAt(0).toUpperCase() + page.slice(1);
+  document.getElementById('bcPage').textContent = label;
+  renderPage();
+  document.getElementById('sidebar').classList.remove('open');
+  document.getElementById('overlay').classList.remove('show');
+}
+
+function toggleSidebar() {
+  document.getElementById('sidebar').classList.toggle('open');
+  document.getElementById('overlay').classList.toggle('show');
+}
+
+// ===== RENDER PAGES =====
+function renderPage() {
+  var c = document.getElementById('content');
+  switch (currentPage) {
+    case 'dashboard': renderDashboard(c); break;
+    case 'custom-agents': renderCustomAgents(c); break;
+    case 'agents': renderAgents(c); break;
+    case 'pipeline': renderPipeline(c); break;
+    case 'skills': renderSkills(c); break;
+    case 'plugins': renderPlugins(c); break;
+    case 'settings': renderSettings(c); break;
+    case 'tokens': renderTokens(c); break;
+    case 'memory': renderMemory(c); break;
+    case 'log': renderLog(c); break;
+    case 'agent-detail': renderAgentDetailPage(c); break;
+  }
+}
+
+function renderDashboard(c) {
+  var recentAgents = state.agents.slice().reverse().slice(0, 5);
+  var recentLog = state.log.slice().reverse().slice(0, 10);
+
+  var tu = state.tokenUsage || null;
+  var tokenCardHTML = '';
+  if (tu && tu.totalTokens > 0) {
+    var planName = (tu.plan && tu.plan.name) ? tu.plan.name : '';
+    var pctHTML = tu.limit > 0
+      ? '<div class="stat-sub" style="margin-top:6px"><div style="background:var(--surface2);border-radius:3px;height:6px;overflow:hidden"><div style="background:' + (tu.usagePercent > 80 ? 'var(--red)' : tu.usagePercent > 50 ? 'var(--yellow)' : 'var(--cyan)') + ';height:100%;width:' + Math.min(tu.usagePercent, 100) + '%;border-radius:3px;transition:width 0.3s"></div></div><div style="margin-top:3px">' + tu.usagePercent + '% of ' + formatTokens(tu.limit) + ' (' + planName + ')</div></div>'
+      : '<div class="stat-sub"><a href="#" onclick="navigate(\'tokens\');return false" style="color:var(--cyan);text-decoration:underline;font-size:10px">Set plan limit</a></div>';
+    tokenCardHTML = '<div class="stat-card tokens"><div class="stat-label">Tokens Used</div><div class="stat-value">' + formatTokens(tu.totalTokens) + '</div>' +
+      '<div class="stat-sub">In: ' + formatTokens(tu.totalInputTokens) + ' / Out: ' + formatTokens(tu.totalOutputTokens) + '</div>' +
+      pctHTML + '</div>';
+  } else {
+    tokenCardHTML = '<div class="stat-card tokens"><div class="stat-label">Tokens Used</div><div class="stat-value" style="font-size:14px;cursor:pointer" onclick="navigate(\'tokens\')">View Token Usage</div>' +
+      '<div class="stat-sub">Click to load from transcripts</div></div>';
+  }
+
+  c.innerHTML =
+    '<div class="stat-cards">' +
+      '<div class="stat-card active"><div class="stat-label">Active Agents</div><div class="stat-value">' + state.activeCount + '</div></div>' +
+      '<div class="stat-card completed"><div class="stat-label">Completed</div><div class="stat-value">' + state.completedCount + '</div></div>' +
+      '<div class="stat-card failed"><div class="stat-label">Failed</div><div class="stat-value">' + state.failedCount + '</div></div>' +
+      tokenCardHTML +
+    '</div>' +
+    '<div class="section-title">Recent Agents <span class="count">' + recentAgents.length + '</span></div>' +
+    (recentAgents.length
+      ? '<div class="agent-grid">' + recentAgents.map(agentCardHTML).join('') + '</div>'
+      : emptyHTML('No agents yet', 'Agents will appear when Claude Code spawns subagents.')) +
+    '<div class="section-title">Recent Events <span class="count">' + recentLog.length + '</span></div>' +
+    (recentLog.length
+      ? '<div class="log-container"><div class="log-entries">' + recentLog.map(logEntryHTML).join('') + '</div></div>'
+      : emptyHTML('No events', 'Events will stream in as agents work.'));
+}
+
+function renderCustomAgents(c) {
+  if (!cache.customAgents) {
+    c.innerHTML = loadingHTML();
+    fetch('/api/agents')
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        cache.customAgents = data;
+        if (currentPage === 'custom-agents') renderCustomAgentsContent(c);
+      })
+      .catch(function(e) { c.innerHTML = emptyHTML('Failed to load agents', e.message); });
+    return;
+  }
+  renderCustomAgentsContent(c);
+}
+
+function renderCustomAgentsContent(c) {
+  var agents = cache.customAgents;
+  var userAgents = agents.filter(function(a) { return a.source === 'user'; });
+  var pluginAgents = agents.filter(function(a) { return a.source === 'plugin'; });
+
+  var html = '';
+
+  // Explanation box
+  html += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:24px">';
+  html += '<div style="font-size:12px;font-weight:600;color:var(--cyan);margin-bottom:8px">What are Custom Agents?</div>';
+  html += '<div style="font-size:11px;color:var(--text-dim);line-height:1.6">';
+  html += 'Custom agents are <strong style="color:var(--text)">reusable, named agents</strong> you define with a specific role, prompt, and tools. ';
+  html += 'Invoke them with <code style="color:var(--cyan)">@agent-name</code> in Claude Code. ';
+  html += 'They are different from <em>subagents</em> (internal workers that Claude spawns temporarily during a task).<br><br>';
+  html += '<strong style="color:var(--text)">Create your own:</strong> Add a <code style="color:var(--cyan)">.md</code> file to <code style="color:var(--cyan)">~/.claude/agents/</code> with YAML frontmatter (name, description, model, tools).';
+  html += '</div></div>';
+
+  // User agents
+  html += '<div class="section-title">Your Agents <span class="count">' + userAgents.length + '</span></div>';
+  if (userAgents.length === 0) {
+    html += '<div style="background:var(--surface);border:1px dashed var(--border);border-radius:8px;padding:20px;margin-bottom:24px;text-align:center">';
+    html += '<div style="font-size:12px;color:var(--text-dim);margin-bottom:8px">No custom agents defined yet</div>';
+    html += '<div style="font-size:11px;color:var(--text-dim)">Create <code style="color:var(--cyan)">~/.claude/agents/my-agent.md</code> to get started</div>';
+    html += '</div>';
+  } else {
+    html += '<div class="agent-grid" style="margin-bottom:24px">';
+    userAgents.forEach(function(a) { html += customAgentCardHTML(a); });
+    html += '</div>';
+  }
+
+  // Plugin agents
+  if (pluginAgents.length > 0) {
+    html += '<div class="section-title">Plugin Agents <span class="count">' + pluginAgents.length + '</span></div>';
+    html += '<div class="agent-grid">';
+    pluginAgents.forEach(function(a) { html += customAgentCardHTML(a); });
+    html += '</div>';
+  }
+
+  c.innerHTML = html;
+}
+
+function customAgentCardHTML(a) {
+  var sourceCls = a.source === 'user' ? 'ca-source-user' : 'ca-source-plugin';
+  return '<div class="custom-agent-card">' +
+    '<div class="ca-header">' +
+      '<span class="ca-name">@' + esc(a.name) + '</span>' +
+      '<span class="ca-source ' + sourceCls + '">' + esc(a.source) + '</span>' +
+    '</div>' +
+    (a.description ? '<div class="ca-desc">' + esc(a.description) + '</div>' : '') +
+    '<div class="ca-meta">' +
+      (a.model ? '<span style="color:var(--purple)">Model: ' + esc(a.model) + '</span>' : '') +
+      (a.color ? '<span>Color: ' + esc(a.color) + '</span>' : '') +
+      (a.tools ? '<span>Tools: ' + esc(a.tools.substring(0, 50)) + (a.tools.length > 50 ? '...' : '') + '</span>' : '') +
+    '</div>' +
+    '<div class="ca-invoke">' +
+      '<span style="color:var(--text-dim)">Invoke: </span><code>@' + esc(a.name) + '</code>' +
+    '</div>' +
+  '</div>';
+}
+
+function renderAgents(c) {
+  var sorted = state.agents.slice().sort(function(a, b) {
+    var order = { running: 0, failed: 1, completed: 2 };
+    var oa = order[a.status] !== undefined ? order[a.status] : 3;
+    var ob = order[b.status] !== undefined ? order[b.status] : 3;
+    return oa - ob;
+  });
+
+  c.innerHTML =
+    '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px 16px;margin-bottom:20px;font-size:11px;color:var(--text-dim)">Subagents are <strong style="color:var(--text)">temporary internal workers</strong> that Claude Code spawns automatically during tasks. They are NOT your custom @agents.</div>' +
+    '<div class="section-title">All Subagents <span class="count">' + sorted.length + '</span></div>' +
+    (sorted.length
+      ? '<div class="agent-grid">' + sorted.map(agentCardHTML).join('') + '</div>'
+      : emptyHTML('No subagents tracked', 'Subagents are automatically tracked when Claude Code spawns them via hooks.'));
+}
+
+var selectedPipelineIdx = -1; // -1 = latest
+
+function renderPipeline(c) {
+  var allPipelines = state.pipelines || [];
+  var p = null;
+
+  if (allPipelines.length === 0 && state.pipeline) {
+    // Backwards compat: old events without pipelineId
+    allPipelines = [state.pipeline];
+  }
+
+  if (allPipelines.length === 0) {
+    c.innerHTML = emptyHTML('No pipelines', 'Pipelines appear when you run /new-parser or other pipeline skills.');
+    return;
+  }
+
+  // Pipeline selector
+  if (selectedPipelineIdx < 0 || selectedPipelineIdx >= allPipelines.length) {
+    selectedPipelineIdx = allPipelines.length - 1; // default to latest
+  }
+  p = allPipelines[selectedPipelineIdx];
+
+  var filterHTML = '';
+  if (allPipelines.length > 1) {
+    filterHTML = '<div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap">';
+    filterHTML += '<span style="font-size:11px;color:var(--text-dim)">Pipeline:</span>';
+    allPipelines.forEach(function(pl, i) {
+      var meta = pl.meta || {};
+      var label = meta.lender || pl.pipelineName || pl.pipelineId || ('Pipeline ' + (i + 1));
+      var statusDot = pl.phase === 'done' ? 'var(--green)' : 'var(--yellow)';
+      var isActive = (i === selectedPipelineIdx);
+      filterHTML += '<button onclick="selectedPipelineIdx=' + i + ';renderPipeline(document.getElementById(\'content\'))" style="' +
+        'background:' + (isActive ? 'rgba(59,130,246,0.15)' : 'var(--surface)') + ';' +
+        'border:1px solid ' + (isActive ? 'var(--accent)' : 'var(--border)') + ';' +
+        'color:' + (isActive ? 'var(--accent)' : 'var(--text-dim)') + ';' +
+        'font-family:inherit;font-size:10px;padding:4px 10px;border-radius:4px;cursor:pointer;display:flex;align-items:center;gap:5px">' +
+        '<span style="width:6px;height:6px;border-radius:50%;background:' + statusDot + '"></span>' +
+        esc(label) +
+        (meta.jiraKey ? ' (' + esc(meta.jiraKey) + ')' : '') +
+      '</button>';
+    });
+    filterHTML += '</div>';
+  }
+
+  var phases = [
+    { id: 'ba-lead', label: 'BA Lead' },
+    { id: 'user-gate', label: 'User Gate' },
+    { id: 'dev-lead', label: 'Dev Lead' },
+    { id: 'qc-lead', label: 'QC Lead' }
+  ];
+
+  var phaseOrder = ['ba-lead', 'user-gate', 'dev-lead', 'qc-lead', 'done'];
+  var currentIdx = phaseOrder.indexOf(p.phase);
+  var progress = p.phase === 'done' ? 100 : Math.max(0, (currentIdx / (phaseOrder.length - 1)) * 100);
+
+  var stepsHTML = phases.map(function(ph, i) {
+    var cls = '';
+    var pi = phaseOrder.indexOf(ph.id);
+    if (pi < currentIdx || p.phase === 'done') cls = 'done';
+    else if (pi === currentIdx) cls = 'active';
+    var agState = p.agents[ph.id];
+    var statusText = agState ? agState.status : (ph.id === 'user-gate' ? 'gate' : 'pending');
+    var arrow = i < phases.length - 1
+      ? '<div class="pipe-arrow ' + (pi < currentIdx ? 'done' : '') + '">&rarr;</div>'
+      : '';
+    return '<div class="pipe-step"><div class="pipe-node ' + cls + '"><div class="pipe-node-label">' + ph.label + '</div><div class="pipe-node-status">' + statusText + '</div></div>' + arrow + '</div>';
+  }).join('');
+
+  var activeAgent = p.agents[p.phase] || p.agents['ba-lead'];
+  var detailHTML = '';
+  if (activeAgent) {
+    detailHTML = '<div><strong>Status:</strong> ' + esc(activeAgent.status) + '</div>' +
+      '<div><strong>Step:</strong> ' + esc(activeAgent.step || 'N/A') + '</div>';
+    if (activeAgent.subtasks.length) {
+      detailHTML += '<div style="margin-top:8px"><strong>Subtasks:</strong></div>';
+      detailHTML += activeAgent.subtasks.map(function(st) {
+        return '<div style="padding:2px 0;font-size:11px">' + subtaskIcon(st.status) + ' ' + esc(st.name) + ' <span style="color:var(--text-dim)">' + esc(st.detail || '') + '</span></div>';
+      }).join('');
+    }
+    if (activeAgent.files.length) {
+      detailHTML += '<div style="margin-top:8px"><strong>Files:</strong></div>';
+      detailHTML += activeAgent.files.map(function(f) {
+        return '<div style="font-size:11px;color:var(--text-dim)">' + esc(f.type) + ' ' + esc(f.path) + '</div>';
+      }).join('');
+    }
+    if (activeAgent.tests.length) {
+      detailHTML += '<div style="margin-top:8px"><strong>Tests:</strong></div>';
+      detailHTML += activeAgent.tests.map(function(t) {
+        return '<div style="font-size:11px">' + subtaskIcon(t.status) + ' ' + esc(t.name) + '</div>';
+      }).join('');
+    }
+  } else {
+    detailHTML = '<div style="color:var(--text-dim)">No active agent</div>';
+  }
+
+  var meta = p.meta || {};
+  var titleParts = [];
+  if (meta.lender) titleParts.push(esc(meta.lender));
+  if (meta.action) titleParts.push(esc(meta.action));
+  if (meta.jiraKey) titleParts.push(esc(meta.jiraKey));
+  var pipeTitle = titleParts.length ? titleParts.join(' — ') : (p.pipelineName || 'Pipeline');
+
+  var pipeLog = state.log.slice(-20).reverse();
+
+  c.innerHTML =
+    '<div class="pipeline-view">' +
+      filterHTML +
+      '<div class="section-title">' + pipeTitle + ' ' +
+        '<span class="count">' + esc(p.phase) + '</span> ' +
+        (p.retryCount ? '<span class="count" style="color:var(--yellow)">Retry #' + p.retryCount + '</span>' : '') +
+      '</div>' +
+      '<div class="pipeline-steps">' + stepsHTML + '</div>' +
+      '<div class="pipeline-progress"><div class="pipeline-progress-bar" style="width:' + progress + '%"></div></div>' +
+      '<div class="pipeline-panels">' +
+        '<div class="panel"><div class="panel-header">Agent Detail &mdash; ' + esc(p.phase) + '</div><div class="panel-body">' + detailHTML + '</div></div>' +
+        '<div class="panel"><div class="panel-header">Pipeline Log</div><div class="panel-body">' + (pipeLog.map(logEntryHTML).join('') || '<div style="color:var(--text-dim)">No log entries</div>') + '</div></div>' +
+      '</div>' +
+    '</div>';
+}
+
+function renderSkills(c) {
+  if (!cache.skills) {
+    c.innerHTML = loadingHTML();
+    fetch('/api/skills')
+      .then(function(res) { return res.json(); })
+      .then(function(data) {
+        cache.skills = data;
+        if (currentPage === 'skills') renderSkillsContent(c);
+      })
+      .catch(function(e) {
+        c.innerHTML = emptyHTML('Failed to load skills', e.message);
+      });
+    return;
+  }
+  renderSkillsContent(c);
+}
+
+function renderSkillsContent(c) {
+  if (!cache.skills.length) {
+    c.innerHTML = emptyHTML('No skills installed', 'Skills are stored in ~/.claude/skills/');
+    return;
+  }
+
+  c.innerHTML =
+    '<div class="section-title">Installed Skills <span class="count">' + cache.skills.length + '</span></div>' +
+    '<div class="item-list">' +
+    cache.skills.map(function(s, i) {
+      return '<div class="list-item" id="skill-' + i + '">' +
+        '<div class="list-item-header" onclick="toggleItem(\'skill-' + i + '\', \'' + escAttr(s.path) + '\')">' +
+          '<div>' +
+            '<div class="list-item-name">' + esc(s.name) + '</div>' +
+            (s.description ? '<div class="list-item-desc">' + esc(s.description) + '</div>' : '') +
+            '<div class="list-item-path">' + esc(s.path) + '</div>' +
+          '</div>' +
+          '<div class="list-item-toggle" id="toggle-skill-' + i + '">&rsaquo;</div>' +
+        '</div>' +
+        '<div class="list-item-content" id="content-skill-' + i + '"><pre>Loading...</pre></div>' +
+      '</div>';
+    }).join('') +
+    '</div>';
+}
+
+function renderPlugins(c) {
+  if (!cache.plugins) {
+    c.innerHTML = loadingHTML();
+    fetch('/api/plugins')
+      .then(function(res) { return res.json(); })
+      .then(function(data) {
+        cache.plugins = data;
+        if (currentPage === 'plugins') renderPluginsContent(c);
+      })
+      .catch(function(e) {
+        c.innerHTML = emptyHTML('Failed to load plugins', e.message);
+      });
+    return;
+  }
+  renderPluginsContent(c);
+}
+
+function renderPluginsContent(c) {
+  var data = cache.plugins || {};
+  var installed = data.installed || [];
+  var marketplace = data.marketplace || [];
+
+  var html = '';
+
+  // Installed plugins
+  html += '<div class="section-title">Installed Plugins <span class="count">' + installed.length + '</span></div>';
+  if (installed.length) {
+    html += '<div class="item-list">' + installed.map(function(p) {
+      return '<div class="list-item"><div class="list-item-header" style="cursor:default"><div>' +
+        '<div class="list-item-name">' + esc(p.name) + '</div>' +
+        '<div class="list-item-path">Scope: ' + esc(p.scope) + (p.version ? ' | v' + esc(p.version) : '') + '</div>' +
+      '</div><span class="plugin-status plugin-enabled">INSTALLED</span></div></div>';
+    }).join('') + '</div>';
+  } else {
+    html += '<div style="color:var(--text-dim);font-size:11px;margin-bottom:20px">No plugins installed via plugin system.</div>';
+  }
+
+  // Marketplace plugins
+  html += '<div class="section-title" style="margin-top:24px">Marketplace Plugins <span class="count">' + marketplace.length + '</span></div>';
+  if (marketplace.length) {
+    html += '<div class="agent-grid">';
+    marketplace.forEach(function(p) {
+      var skillList = (p.skills || []).slice(0, 5);
+      var agentList = (p.agents || []).slice(0, 5);
+      html += '<div class="custom-agent-card" style="border-color:' + (p.installed ? 'var(--green)' : 'var(--border)') + '">';
+      html += '<div class="ca-header">';
+      html += '<span class="ca-name" style="font-size:13px;color:' + (p.installed ? 'var(--green)' : 'var(--text)') + '">' + esc(p.name) + '</span>';
+      html += '<span class="ca-source ' + (p.installed ? 'ca-source-user' : 'ca-source-plugin') + '">' + (p.installed ? 'installed' : 'available') + '</span>';
+      html += '</div>';
+      if (p.description) html += '<div class="ca-desc">' + esc(p.description) + '</div>';
+      if (skillList.length) {
+        html += '<div style="font-size:10px;color:var(--text-dim);margin-bottom:4px">Skills: ' +
+          skillList.map(function(s) { return '<span style="color:var(--cyan)">/' + esc(s) + '</span>'; }).join(', ') +
+          (p.skills.length > 5 ? ' +' + (p.skills.length - 5) + ' more' : '') + '</div>';
+      }
+      if (agentList.length) {
+        html += '<div style="font-size:10px;color:var(--text-dim)">Agents: ' +
+          agentList.map(function(a) { return '<span style="color:var(--purple)">@' + esc(a) + '</span>'; }).join(', ') +
+          (p.agents.length > 5 ? ' +' + (p.agents.length - 5) + ' more' : '') + '</div>';
+      }
+      html += '</div>';
+    });
+    html += '</div>';
+  }
+
+  c.innerHTML = html;
+}
+
+function renderSettings(c) {
+  if (!cache.settings) {
+    c.innerHTML = loadingHTML();
+    fetch('/api/settings')
+      .then(function(res) { return res.json(); })
+      .then(function(data) {
+        cache.settings = data;
+        if (currentPage === 'settings') renderSettingsContent(c);
+      })
+      .catch(function(e) {
+        c.innerHTML = emptyHTML('Failed to load settings', e.message);
+      });
+    return;
+  }
+  renderSettingsContent(c);
+}
+
+function renderSettingsContent(c) {
+  c.innerHTML =
+    '<div class="section-title">Settings</div>' +
+    '<div class="json-viewer"><pre>' + syntaxHighlight(JSON.stringify(cache.settings, null, 2)) + '</pre></div>';
+}
+
+function renderTokens(c) {
+  if (!cache.tokenUsage) {
+    c.innerHTML = loadingHTML();
+    fetchTokenData(false, c);
+    return;
+  }
+  renderTokensContent(c);
+}
+
+function fetchTokenData(forceRefresh, c) {
+  var url = forceRefresh ? '/api/token-usage?refresh=1' : '/api/token-usage';
+  Promise.all([
+    fetch(url).then(function(r) { return r.json(); }),
+    fetch('/api/plan').then(function(r) { return r.json(); })
+  ]).then(function(results) {
+    cache.tokenUsage = results[0];
+    cache.tokenUsage._planName = results[1].name || '';
+    cache.tokenUsage._planLimit = results[1].monthlyTokenLimit || 0;
+    cache.tokenUsage._planStart = results[1].billingCycleStart || '';
+    if (currentPage === 'tokens') renderTokensContent(c || document.getElementById('content'));
+  }).catch(function(e) {
+    if (c) c.innerHTML = emptyHTML('Failed to load token usage', e.message);
+  });
+}
+
+function continueSession(sessionId, agentId) {
+  // Fetch the original prompt for context, then show continue modal
+  fetch('/api/agent-prompt?id=' + encodeURIComponent(agentId))
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      showContinueModal(sessionId, agentId, data.prompt || '');
+    })
+    .catch(function() {
+      showContinueModal(sessionId, agentId, '');
+    });
+}
+
+function showContinueModal(sessionId, agentId, originalPrompt) {
+  var overlay = document.createElement('div');
+  overlay.id = 'continue-modal';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:1000;display:flex;align-items:center;justify-content:center';
+  overlay.innerHTML =
+    '<div style="background:var(--surface);border:1px solid var(--green);border-radius:12px;padding:24px;width:620px;max-width:90vw;max-height:85vh;display:flex;flex-direction:column">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">' +
+        '<div style="font-size:14px;font-weight:700;color:var(--green)">Continue Session (Saves Tokens!)</div>' +
+        '<button onclick="document.getElementById(\'continue-modal\').remove()" style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:18px">&times;</button>' +
+      '</div>' +
+      '<div style="background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.2);border-radius:6px;padding:10px;margin-bottom:14px;font-size:11px;color:var(--green)">' +
+        'This resumes the existing session with cached context. The model already has the codebase loaded — no need to re-read files or re-create cache.' +
+      '</div>' +
+      '<div style="font-size:10px;color:var(--text-dim);margin-bottom:4px">SESSION: ' + esc(sessionId.substring(0,8)) + '...</div>' +
+      '<div style="font-size:10px;color:var(--text-dim);margin-bottom:12px">PREVIOUS AGENT: ' + esc(agentId) + '</div>' +
+      (originalPrompt ? '<details style="margin-bottom:12px"><summary style="font-size:10px;color:var(--text-dim);cursor:pointer">Original prompt (click to view)</summary><pre style="font-size:10px;color:var(--text-dim);max-height:120px;overflow-y:auto;padding:8px;background:var(--bg);border-radius:4px;margin-top:6px;white-space:pre-wrap">' + esc(originalPrompt) + '</pre></details>' : '') +
+      '<label style="font-size:10px;color:var(--text-dim);margin-bottom:4px;display:block">FOLLOW-UP PROMPT</label>' +
+      '<textarea id="continue-prompt" placeholder="What do you want to do next in this session?" style="background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:\'JetBrains Mono\',monospace;font-size:11px;padding:12px;border-radius:6px;resize:vertical;flex:1;min-height:150px"></textarea>' +
+      '<div style="display:flex;gap:10px;align-items:center;margin-top:14px">' +
+        '<label style="font-size:10px;color:var(--text-dim)">MODEL</label>' +
+        '<select id="continue-model" style="background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:inherit;font-size:11px;padding:4px 8px;border-radius:4px">' +
+          '<option value="">Default</option><option value="opus">Opus</option><option value="sonnet">Sonnet</option><option value="haiku">Haiku</option>' +
+        '</select>' +
+        '<div style="flex:1"></div>' +
+        '<button onclick="document.getElementById(\'continue-modal\').remove()" style="background:none;border:1px solid var(--border);color:var(--text-dim);font-family:inherit;font-size:11px;padding:6px 16px;border-radius:4px;cursor:pointer">Cancel</button>' +
+        '<button id="continue-btn" onclick="executeContinue(\'' + esc(sessionId) + '\')" style="background:var(--green);border:none;color:var(--bg);font-family:inherit;font-size:11px;font-weight:700;padding:6px 20px;border-radius:4px;cursor:pointer">Continue Session</button>' +
+      '</div>' +
+    '</div>';
+  overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+  document.body.appendChild(overlay);
+}
+
+function executeContinue(sessionId) {
+  var prompt = document.getElementById('continue-prompt').value;
+  var model = document.getElementById('continue-model').value;
+  if (!prompt.trim()) { alert('Enter a follow-up prompt'); return; }
+
+  var btn = document.getElementById('continue-btn');
+  btn.textContent = 'Starting...';
+  btn.disabled = true;
+
+  fetch('/api/agent-rerun', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      prompt: prompt,
+      model: model,
+      sessionId: sessionId,
+      name: 'continue-' + sessionId.substring(0, 8)
+    })
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    document.getElementById('continue-modal').remove();
+    if (data.error) {
+      alert('Failed: ' + data.error);
+    } else {
+      showNotification(data.message || 'Session continued!', 'var(--green)');
+    }
+  })
+  .catch(function(e) {
+    btn.textContent = 'Continue Session';
+    btn.disabled = false;
+    alert('Error: ' + e.message);
+  });
+}
+
+function showNotification(msg, color) {
+  var notif = document.createElement('div');
+  notif.style.cssText = 'position:fixed;top:20px;right:20px;background:' + (color || 'var(--green)') + ';color:var(--bg);padding:12px 20px;border-radius:8px;font-size:12px;font-weight:600;z-index:1001';
+  notif.textContent = msg;
+  document.body.appendChild(notif);
+  setTimeout(function() { notif.remove(); }, 4000);
+}
+
+function rerunAgent(agentId) {
+  // Fetch the original prompt first
+  fetch('/api/agent-prompt?id=' + encodeURIComponent(agentId))
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.error) {
+        alert('Error: ' + data.error);
+        return;
+      }
+      showRerunModal(agentId, data.prompt);
+    })
+    .catch(function(e) { alert('Failed to fetch prompt: ' + e.message); });
+}
+
+function showRerunModal(agentId, prompt) {
+  // Create modal overlay
+  var overlay = document.createElement('div');
+  overlay.id = 'rerun-modal';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:1000;display:flex;align-items:center;justify-content:center';
+  overlay.innerHTML =
+    '<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:24px;width:600px;max-width:90vw;max-height:80vh;display:flex;flex-direction:column">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">' +
+        '<div style="font-size:14px;font-weight:700;color:var(--cyan)">Re-run Agent</div>' +
+        '<button onclick="document.getElementById(\'rerun-modal\').remove()" style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:18px">&times;</button>' +
+      '</div>' +
+      '<div style="font-size:10px;color:var(--text-dim);margin-bottom:8px">ORIGINAL AGENT: ' + esc(agentId) + '</div>' +
+      '<label style="font-size:10px;color:var(--text-dim);margin-bottom:4px">PROMPT (editable)</label>' +
+      '<textarea id="rerun-prompt" style="background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:\'JetBrains Mono\',monospace;font-size:11px;padding:12px;border-radius:6px;resize:vertical;flex:1;min-height:200px;max-height:50vh">' + esc(prompt) + '</textarea>' +
+      '<div style="display:flex;gap:10px;align-items:center;margin-top:16px">' +
+        '<label style="font-size:10px;color:var(--text-dim)">MODEL</label>' +
+        '<select id="rerun-model" style="background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:inherit;font-size:11px;padding:4px 8px;border-radius:4px">' +
+          '<option value="">Default</option>' +
+          '<option value="opus">Opus</option>' +
+          '<option value="sonnet">Sonnet</option>' +
+          '<option value="haiku">Haiku</option>' +
+        '</select>' +
+        '<div style="flex:1"></div>' +
+        '<button onclick="document.getElementById(\'rerun-modal\').remove()" style="background:none;border:1px solid var(--border);color:var(--text-dim);font-family:inherit;font-size:11px;padding:6px 16px;border-radius:4px;cursor:pointer">Cancel</button>' +
+        '<button onclick="executeRerun()" style="background:var(--cyan);border:none;color:var(--bg);font-family:inherit;font-size:11px;font-weight:700;padding:6px 20px;border-radius:4px;cursor:pointer">Run Agent</button>' +
+      '</div>' +
+    '</div>';
+
+  overlay.addEventListener('click', function(e) {
+    if (e.target === overlay) overlay.remove();
+  });
+  document.body.appendChild(overlay);
+}
+
+function executeRerun() {
+  var prompt = document.getElementById('rerun-prompt').value;
+  var model = document.getElementById('rerun-model').value;
+
+  if (!prompt.trim()) {
+    alert('Prompt cannot be empty');
+    return;
+  }
+
+  var btn = document.querySelector('#rerun-modal button:last-child');
+  btn.textContent = 'Starting...';
+  btn.disabled = true;
+
+  fetch('/api/agent-rerun', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      prompt: prompt,
+      model: model,
+      name: 'dashboard-' + Date.now()
+    })
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    document.getElementById('rerun-modal').remove();
+    if (data.error) {
+      alert('Failed: ' + data.error);
+    } else {
+      showNotification(data.message || 'Agent started!', 'var(--cyan)');
+    }
+  })
+  .catch(function(e) {
+    btn.textContent = 'Run Agent';
+    btn.disabled = false;
+    alert('Error: ' + e.message);
+  });
+}
+
+function refreshTokenUsage() {
+  cache.tokenUsage = null;
+  var c = document.getElementById('content');
+  c.innerHTML = loadingHTML();
+  fetchTokenData(true, c);
+}
+
+function savePlanConfig() {
+  var name = document.getElementById('planName').value;
+  var limit = parseInt(document.getElementById('planLimit').value) || 0;
+  var start = document.getElementById('planStart').value || '';
+
+  fetch('/api/plan', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: name, monthlyTokenLimit: limit, billingCycleStart: start })
+  })
+  .then(function(res) { return res.json(); })
+  .then(function(data) {
+    if (data.error) {
+      alert('Failed: ' + data.error);
+    } else {
+      // Update cache and refresh
+      cache.tokenUsage._planName = name;
+      cache.tokenUsage._planLimit = limit;
+      cache.tokenUsage._planStart = start;
+      alert('Plan saved! Dashboard will update on next poll.');
+    }
+  })
+  .catch(function(e) { alert('Error: ' + e.message); });
+}
+
+function renderTokensContent(c) {
+  var data = cache.tokenUsage;
+  var t = data.total;
+  var agents = data.agents;
+
+  if (!agents.length) {
+    c.innerHTML = emptyHTML('No token usage data', 'Token data is captured from subagent transcripts stored by Claude Code.');
+    return;
+  }
+
+  var html = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">' +
+    '<div class="section-title" style="margin-bottom:0">Token Usage (Real) <span class="count">' + agents.length + ' agents</span></div>' +
+    '<button class="token-refresh-btn" onclick="refreshTokenUsage()">Refresh</button>' +
+  '</div>';
+
+  html += '<div class="token-summary-cards">' +
+    '<div class="token-summary-card"><div class="tsc-label">Total Tokens</div><div class="tsc-value">' + formatTokens(t.totalTokens) + '</div><div class="tsc-sub">' + t.totalTokens.toLocaleString() + ' exact</div></div>' +
+    '<div class="token-summary-card"><div class="tsc-label">Input Tokens</div><div class="tsc-value" style="color:var(--green)">' + formatTokens(t.totalInputTokens) + '</div><div class="tsc-sub">Direct input</div></div>' +
+    '<div class="token-summary-card"><div class="tsc-label">Output Tokens</div><div class="tsc-value" style="color:var(--purple)">' + formatTokens(t.totalOutputTokens) + '</div><div class="tsc-sub">Generated</div></div>' +
+    '<div class="token-summary-card"><div class="tsc-label">Cache Read</div><div class="tsc-value" style="color:var(--text-dim)">' + formatTokens(t.totalCacheRead) + '</div><div class="tsc-sub">Cached input</div></div>' +
+    '<div class="token-summary-card"><div class="tsc-label">Cache Create</div><div class="tsc-value" style="color:var(--yellow)">' + formatTokens(t.totalCacheCreate) + '</div><div class="tsc-sub">New cache</div></div>' +
+    '<div class="token-summary-card"><div class="tsc-label">API Calls</div><div class="tsc-value" style="color:var(--orange)">' + t.totalApiCalls + '</div><div class="tsc-sub">Total requests</div></div>' +
+  '</div>';
+
+  // Plan usage bar (if limit is set)
+  var planLimit = cache.tokenUsage._planLimit || 0;
+  if (planLimit > 0) {
+    var pct = Math.min(100, Math.round((t.totalTokens / planLimit) * 1000) / 10);
+    var barColor = pct > 80 ? 'var(--red)' : pct > 50 ? 'var(--yellow)' : 'var(--cyan)';
+    html += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:24px">';
+    html += '<div style="display:flex;justify-content:space-between;margin-bottom:8px"><span style="font-size:12px;font-weight:600">Plan Usage</span><span style="font-size:12px;color:' + barColor + ';font-weight:700">' + pct + '%</span></div>';
+    html += '<div style="background:var(--surface2);border-radius:4px;height:10px;overflow:hidden"><div style="background:' + barColor + ';height:100%;width:' + pct + '%;border-radius:4px;transition:width 0.5s"></div></div>';
+    html += '<div style="display:flex;justify-content:space-between;margin-top:6px;font-size:10px;color:var(--text-dim)"><span>' + formatTokens(t.totalTokens) + ' used</span><span>' + formatTokens(planLimit) + ' limit (' + (cache.tokenUsage._planName || 'Custom') + ')</span></div>';
+    html += '</div>';
+  }
+
+  // Efficiency report
+  var wastedCache = 0;
+  var sessionGroups = {};
+  agents.forEach(function(a) {
+    var key = a.session || 'unknown';
+    if (!sessionGroups[key]) sessionGroups[key] = [];
+    sessionGroups[key].push(a);
+  });
+  var multiSessions = 0;
+  Object.keys(sessionGroups).forEach(function(key) {
+    var group = sessionGroups[key];
+    if (group.length > 1) {
+      multiSessions++;
+      for (var i = 1; i < group.length; i++) {
+        wastedCache += group[i].cacheCreateTokens;
+      }
+    }
+  });
+  var efficiencyPct = t.totalCacheCreate > 0 ? Math.round((1 - wastedCache / t.totalCacheCreate) * 100) : 100;
+  var effColor = efficiencyPct > 70 ? 'var(--green)' : efficiencyPct > 40 ? 'var(--yellow)' : 'var(--red)';
+
+  html += '<div style="background:var(--surface);border:1px solid ' + effColor + ';border-radius:8px;padding:16px;margin-bottom:24px">';
+  html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">';
+  html += '<span style="font-size:13px;font-weight:700;color:' + effColor + '">Cache Efficiency: ' + efficiencyPct + '%</span>';
+  html += '<span style="font-size:11px;color:var(--text-dim)">' + multiSessions + ' sessions with multiple agents</span>';
+  html += '</div>';
+  html += '<div style="background:var(--surface2);border-radius:4px;height:8px;overflow:hidden;margin-bottom:10px"><div style="background:' + effColor + ';height:100%;width:' + efficiencyPct + '%;border-radius:4px"></div></div>';
+  if (wastedCache > 0) {
+    html += '<div style="font-size:11px;color:var(--text-dim);margin-bottom:8px">~<strong style="color:var(--yellow)">' + formatTokens(wastedCache) + ' tokens</strong> spent re-creating cache that already existed in the same session.</div>';
+    html += '<div style="font-size:11px;color:var(--text-dim)"><strong>Tip:</strong> Use <span style="color:var(--cyan)">Continue Session</span> to send follow-up work to an existing session instead of spawning new agents. This reuses cached context.</div>';
+  } else {
+    html += '<div style="font-size:11px;color:var(--green)">Great! No redundant cache re-creation detected.</div>';
+  }
+  html += '</div>';
+
+  // Plan usage bar (if limit is set)
+  var planLimit = cache.tokenUsage._planLimit || 0;
+  if (planLimit > 0) {
+    var pct = Math.min(100, Math.round((t.totalTokens / planLimit) * 1000) / 10);
+    var barColor = pct > 80 ? 'var(--red)' : pct > 50 ? 'var(--yellow)' : 'var(--cyan)';
+    html += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:24px">';
+    html += '<div style="display:flex;justify-content:space-between;margin-bottom:8px"><span style="font-size:12px;font-weight:600">Plan Usage</span><span style="font-size:12px;color:' + barColor + ';font-weight:700">' + pct + '%</span></div>';
+    html += '<div style="background:var(--surface2);border-radius:4px;height:10px;overflow:hidden"><div style="background:' + barColor + ';height:100%;width:' + pct + '%;border-radius:4px;transition:width 0.5s"></div></div>';
+    html += '<div style="display:flex;justify-content:space-between;margin-top:6px;font-size:10px;color:var(--text-dim)"><span>' + formatTokens(t.totalTokens) + ' used</span><span>' + formatTokens(planLimit) + ' limit (' + (cache.tokenUsage._planName || 'Custom') + ')</span></div>';
+    html += '</div>';
+  }
+
+  // Plan config section (collapsible)
+  html += '<details style="margin-bottom:24px"><summary style="font-size:12px;font-weight:600;cursor:pointer;color:var(--text-dim);margin-bottom:8px">Plan Configuration</summary>';
+  html += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px">';
+  html += '<div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">';
+  html += '<div><label style="font-size:10px;color:var(--text-dim);display:block;margin-bottom:4px">PLAN NAME</label>';
+  html += '<select id="planName" style="background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:inherit;font-size:11px;padding:6px 10px;border-radius:4px">';
+  ['Max $100','Max $200','Pro','Team','Enterprise','API'].forEach(function(p) {
+    html += '<option value="' + p + '"' + (cache.tokenUsage._planName === p ? ' selected' : '') + '>' + p + '</option>';
+  });
+  html += '</select></div>';
+  html += '<div><label style="font-size:10px;color:var(--text-dim);display:block;margin-bottom:4px">TOKEN LIMIT</label>';
+  html += '<input id="planLimit" type="number" value="' + (cache.tokenUsage._planLimit || 0) + '" style="background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:inherit;font-size:11px;padding:6px 10px;border-radius:4px;width:140px"></div>';
+  html += '<div><label style="font-size:10px;color:var(--text-dim);display:block;margin-bottom:4px">BILLING START</label>';
+  html += '<input id="planStart" type="date" value="' + (cache.tokenUsage._planStart || '') + '" style="background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:inherit;font-size:11px;padding:6px 10px;border-radius:4px"></div>';
+  html += '<button onclick="savePlanConfig()" class="token-refresh-btn" style="margin-bottom:0">Save</button>';
+  html += '</div></div></details>';
+
+  // Per-agent table with session grouping and action buttons
+  html += '<div class="section-title">Per-Agent Breakdown</div>';
+  html += '<table class="token-table">';
+  html += '<thead><tr>' +
+    '<th>Agent / Session</th>' +
+    '<th class="tok-num">Input</th>' +
+    '<th class="tok-num">Output</th>' +
+    '<th class="tok-num">Cache Read</th>' +
+    '<th class="tok-num">Cache Create</th>' +
+    '<th class="tok-num">Total</th>' +
+    '<th class="tok-num">Calls</th>' +
+    '<th style="width:140px">Actions</th>' +
+  '</tr></thead><tbody>';
+
+  agents.forEach(function(a) {
+    var sessionId = a.session || '';
+    var sessionAgents = sessionGroups[sessionId] || [];
+    var isMulti = sessionAgents.length > 1;
+    html += '<tr>' +
+      '<td>' +
+        '<div style="font-weight:600;font-size:11px">' + esc(a.agentId) + '</div>' +
+        '<div class="tok-snippet">' + esc(a.promptSnippet) + '</div>' +
+        (isMulti ? '<div style="font-size:9px;color:var(--yellow);margin-top:2px">session: ' + sessionId.substring(0,8) + '... (' + sessionAgents.length + ' agents)</div>' : '') +
+      '</td>' +
+      '<td class="tok-num tok-green">' + a.inputTokens.toLocaleString() + '</td>' +
+      '<td class="tok-num tok-purple">' + a.outputTokens.toLocaleString() + '</td>' +
+      '<td class="tok-num">' + a.cacheReadTokens.toLocaleString() + '</td>' +
+      '<td class="tok-num" style="color:var(--yellow)">' + a.cacheCreateTokens.toLocaleString() + '</td>' +
+      '<td class="tok-num tok-total">' + a.totalTokens.toLocaleString() + '</td>' +
+      '<td class="tok-num">' + a.apiCalls + '</td>' +
+      '<td style="white-space:nowrap">' +
+        '<button class="token-refresh-btn" style="font-size:9px;padding:2px 6px" onclick="rerunAgent(\'' + esc(a.agentId) + '\')">Re-run</button> ' +
+        (sessionId ? '<button class="token-refresh-btn" style="font-size:9px;padding:2px 6px;border-color:rgba(16,185,129,0.4);color:var(--green)" onclick="continueSession(\'' + esc(sessionId) + '\',\'' + esc(a.agentId) + '\')">Continue</button>' : '') +
+      '</td>' +
+    '</tr>';
+  });
+
+  html += '</tbody></table>';
+  c.innerHTML = html;
+}
+
+function renderMemory(c) {
+  if (!cache.memory) {
+    c.innerHTML = loadingHTML();
+    fetch('/api/memory')
+      .then(function(res) { return res.json(); })
+      .then(function(data) {
+        cache.memory = data;
+        if (currentPage === 'memory') renderMemoryContent(c);
+      })
+      .catch(function(e) {
+        c.innerHTML = emptyHTML('Failed to load memory files', e.message);
+      });
+    return;
+  }
+  renderMemoryContent(c);
+}
+
+function renderMemoryContent(c) {
+  if (!cache.memory.length) {
+    c.innerHTML = emptyHTML('No memory files', 'Memory files are stored in ~/.claude/projects/.../memory/');
+    return;
+  }
+
+  c.innerHTML =
+    '<div class="section-title">Memory Files <span class="count">' + cache.memory.length + '</span></div>' +
+    '<div class="item-list">' +
+    cache.memory.map(function(m, i) {
+      var isIndex = m.name === 'MEMORY.md';
+      return '<div class="list-item" id="mem-' + i + '">' +
+        '<div class="list-item-header">' +
+          '<div style="flex:1;cursor:pointer" onclick="toggleItem(\'mem-' + i + '\', \'' + escAttr(m.path) + '\')">' +
+            '<div class="list-item-name">' + esc(m.name) + '</div>' +
+            '<div class="list-item-path">' + esc(m.path) + '</div>' +
+          '</div>' +
+          '<div class="mem-actions">' +
+            (!isIndex ? '<button class="mem-delete-btn" onclick="deleteMemory(\'' + escAttr(m.name) + '\', event)">Delete</button>' : '') +
+            '<div class="list-item-toggle" id="toggle-mem-' + i + '" onclick="toggleItem(\'mem-' + i + '\', \'' + escAttr(m.path) + '\')" style="cursor:pointer">&rsaquo;</div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="list-item-content" id="content-mem-' + i + '"><pre>Loading...</pre></div>' +
+      '</div>';
+    }).join('') +
+    '</div>';
+}
+
+function deleteMemory(filename, event) {
+  event.stopPropagation();
+  if (!confirm('Delete memory file "' + filename + '"? This will also remove its entry from MEMORY.md index.')) return;
+
+  fetch('/api/memory?file=' + encodeURIComponent(filename), { method: 'DELETE' })
+    .then(function(res) { return res.json(); })
+    .then(function(data) {
+      if (data.error) {
+        alert('Failed to delete: ' + data.error);
+      } else {
+        // Clear cache and re-render
+        cache.memory = null;
+        cache.fileContents = {};
+        renderMemory(document.getElementById('content'));
+      }
+    })
+    .catch(function(e) {
+      alert('Error: ' + e.message);
+    });
+}
+
+function renderLog(c) {
+  var entries = state.log.slice().reverse();
+  c.innerHTML =
+    '<div class="section-title">Event Log <span class="count">' + entries.length + '</span></div>' +
+    (entries.length
+      ? '<div class="log-container"><div class="log-entries" style="max-height:calc(100vh - 180px)">' + entries.map(logEntryHTML).join('') + '</div></div>'
+      : emptyHTML('No events', 'Events will appear as agents work.'));
+}
+
+// ===== COMPONENT HELPERS =====
+function agentCardHTML(a) {
+  var badge = agentBadge(a.type);
+  var dur = a.startedAt ? formatDuration(a.startedAt, a.completedAt) : '';
+  var inTok = a.estimatedInputTokens || 0;
+  var outTok = a.estimatedOutputTokens || 0;
+  var totalTok = inTok + outTok;
+  return '<div class="agent-card">' +
+    '<div class="agent-card-header">' +
+      '<span class="agent-badge ' + badge.cls + '">' + badge.label + '</span>' +
+      '<div style="display:flex;align-items:center;gap:8px">' +
+        (totalTok > 0 ? '<span class="token-badge">' + formatTokens(totalTok) + ' tok</span>' : '') +
+        (a.background ? '<span class="bg-indicator">BG</span>' : '') +
+        '<div class="agent-status-dot dot-' + a.status + '"></div>' +
+      '</div>' +
+    '</div>' +
+    '<div class="agent-desc">' + esc(a.description) + '</div>' +
+    '<div class="agent-meta">' +
+      '<span>' + esc(a.status) + '</span>' +
+      (dur ? '<span>' + dur + '</span>' : '') +
+      '<span>' + formatTime(a.startedAt) + '</span>' +
+      (totalTok > 0 ? '<span style="color:var(--cyan)">In:' + formatTokens(inTok) + ' Out:' + formatTokens(outTok) + '</span>' : '') +
+    '</div>' +
+  '</div>';
+}
+
+function logEntryHTML(l) {
+  var agentCls = l.agent ? 'agent-' + l.agent.replace(/[^a-z\-]/g, '') : 'agent-system';
+  return '<div class="log-entry level-' + (l.level || 'info') + '">' +
+    '<span class="log-time">' + formatTime(l.time) + '</span>' +
+    '<span class="log-agent ' + agentCls + '">' + esc(l.agent || 'system') + '</span>' +
+    '<span class="log-msg">' + esc(l.message) + '</span>' +
+  '</div>';
+}
+
+function emptyHTML(title, desc) {
+  return '<div class="empty-state">' +
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="9"/><line x1="9" y1="9" x2="15" y2="15"/><line x1="15" y1="9" x2="9" y2="15"/></svg>' +
+    '<div style="font-weight:600;font-size:14px;color:var(--text)">' + title + '</div>' +
+    '<p>' + (desc || '') + '</p>' +
+  '</div>';
+}
+
+function loadingHTML() {
+  return '<div class="loading"><div class="spinner"></div> Loading...</div>';
+}
+
+function agentBadge(type) {
+  var t = (type || '').toLowerCase();
+  if (t.indexOf('parser') >= 0 || t.indexOf('ratesheet') >= 0) return { cls: 'badge-parser', label: 'parser' };
+  if (t.indexOf('research') >= 0 || t.indexOf('analysis') >= 0) return { cls: 'badge-research', label: 'research' };
+  if (t.indexOf('code') >= 0 || t.indexOf('dev') >= 0) return { cls: 'badge-code', label: 'code' };
+  if (t.indexOf('general') >= 0) return { cls: 'badge-general', label: 'general' };
+  return { cls: 'badge-default', label: t || 'agent' };
+}
+
+function subtaskIcon(status) {
+  if (status === 'done' || status === 'completed' || status === 'pass') return '<span style="color:var(--green)">&#10003;</span>';
+  if (status === 'failed' || status === 'fail') return '<span style="color:var(--red)">&#10007;</span>';
+  if (status === 'running') return '<span style="color:var(--yellow)">&#9654;</span>';
+  return '<span style="color:var(--text-dim)">&#9679;</span>';
+}
+
+// ===== TOGGLE EXPANDABLE ITEMS =====
+function toggleItem(id, filepath) {
+  var contentEl = document.getElementById('content-' + id);
+  var toggleEl = document.getElementById('toggle-' + id);
+  if (!contentEl || !toggleEl) return;
+
+  var isOpen = contentEl.classList.contains('open');
+  if (isOpen) {
+    contentEl.classList.remove('open');
+    toggleEl.classList.remove('open');
+    return;
+  }
+
+  contentEl.classList.add('open');
+  toggleEl.classList.add('open');
+
+  if (!cache.fileContents[filepath]) {
+    contentEl.querySelector('pre').textContent = 'Loading...';
+    fetch('/api/file?path=' + encodeURIComponent(filepath))
+      .then(function(res) { return res.json(); })
+      .then(function(data) {
+        if (data.error) {
+          cache.fileContents[filepath] = 'Error: ' + data.error;
+        } else {
+          cache.fileContents[filepath] = data.content;
+        }
+        var pre = document.querySelector('#content-' + id + ' pre');
+        if (pre) pre.textContent = cache.fileContents[filepath];
+      })
+      .catch(function(e) {
+        cache.fileContents[filepath] = 'Error: ' + e.message;
+        var pre = document.querySelector('#content-' + id + ' pre');
+        if (pre) pre.textContent = cache.fileContents[filepath];
+      });
+  } else {
+    contentEl.querySelector('pre').textContent = cache.fileContents[filepath];
+  }
+}
+
+// ===== JSON SYNTAX HIGHLIGHTING =====
+function syntaxHighlight(json) {
+  json = json.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return json.replace(/("(\\u[\da-fA-F]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, function(match) {
+    var cls = 'json-number';
+    if (/^"/.test(match)) {
+      if (/:$/.test(match)) {
+        cls = 'json-key';
+        return '<span class="' + cls + '">' + match.slice(0, -1) + '</span>:';
+      } else {
+        cls = 'json-string';
+      }
+    } else if (/true|false/.test(match)) {
+      cls = 'json-boolean';
+    } else if (/null/.test(match)) {
+      cls = 'json-null';
+    }
+    return '<span class="' + cls + '">' + match + '</span>';
+  });
+}
+
+// ===== UTILITY =====
+function esc(s) {
+  if (!s) return '';
+  var d = document.createElement('div');
+  d.textContent = String(s);
+  return d.innerHTML;
+}
+
+function escAttr(s) {
+  if (!s) return '';
+  return s.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+}
+
+function formatTime(ts) {
+  if (!ts) return '';
+  try {
+    var d = new Date(ts);
+    return d.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  } catch(e) { return ts; }
+}
+
+function formatTokens(n) {
+  if (!n || n === 0) return '0';
+  if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+  if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
+  return String(n);
+}
+
+function formatDuration(start, end) {
+  try {
+    var s = new Date(start).getTime();
+    var e = end ? new Date(end).getTime() : Date.now();
+    var diff = Math.max(0, e - s);
+    if (diff < 1000) return '<1s';
+    var secs = Math.floor(diff / 1000);
+    if (secs < 60) return secs + 's';
+    var mins = Math.floor(secs / 60);
+    var remSecs = secs % 60;
+    if (mins < 60) return mins + 'm ' + remSecs + 's';
+    var hrs = Math.floor(mins / 60);
+    return hrs + 'h ' + (mins % 60) + 'm';
+  } catch(e) { return ''; }
+}
+
+// ===== POLLING =====
+var pollTimer = null;
+var failCount = 0;
+
+function poll() {
+  fetch('/status')
+    .then(function(res) {
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      return res.json();
+    })
+    .then(function(data) {
+      state = data;
+      failCount = 0;
+      setConnected(true);
+      updateHeader();
+      if (['dashboard', 'agents', 'pipeline', 'log'].indexOf(currentPage) >= 0) {
+        renderPage();
+      }
+    })
+    .catch(function(e) {
+      failCount++;
+      if (failCount > 3) setConnected(false);
+    });
+}
+
+function setConnected(ok) {
+  connected = ok;
+  var dot = document.getElementById('connDot');
+  var txt = document.getElementById('connText');
+  if (ok) {
+    dot.classList.add('connected');
+    txt.textContent = 'Connected';
+  } else {
+    dot.classList.remove('connected');
+    txt.textContent = 'Disconnected';
+  }
+}
+
+function updateHeader() {
+  document.getElementById('hActive').textContent = state.activeCount;
+  document.getElementById('hCompleted').textContent = state.completedCount;
+  document.getElementById('hFailed').textContent = state.failedCount;
+}
+
+// ===== DETAIL PANEL =====
+var dpOverlay, dpPanel, dpTermOutput, dpTermInput;
+var dpCurrentAgent = null;
+var dpTermHistory = [];
+var dpCurrentTab = 'logs';
+
+function initDetailPanel() {
+  dpOverlay = document.createElement('div');
+  dpOverlay.className = 'detail-overlay';
+  document.body.appendChild(dpOverlay);
+
+  // The detail panel is rendered INSIDE #content when "agent-detail" page is active.
+  // No fixed overlay needed — it's just another page.
+}
+
+var dpCurrentAgentIdx = -1;
+
+function openDetailPanel(agentIdx) {
+  if (!state || !state.agents || !state.agents[agentIdx]) return;
+  dpCurrentAgentIdx = agentIdx;
+  dpCurrentAgent = state.agents[agentIdx];
+  dpCurrentTab = 'logs';
+  // Navigate to "agent-detail" as a normal page
+  navigate('agent-detail');
+}
+
+function selectDpAgent(idx) {
+  if (!state || !state.agents || !state.agents[idx]) return;
+  dpCurrentAgentIdx = idx;
+  dpCurrentAgent = state.agents[idx];
+  renderAgentDetailPage(document.getElementById('content'));
+}
+
+function closeDetailPanel() {
+  dpCurrentAgent = null;
+  dpCurrentAgentIdx = -1;
+  navigate('agents');
+}
+
+function renderAgentDetailPage(c) {
+  if (!dpCurrentAgent) { navigate('agents'); return; }
+  var a = dpCurrentAgent;
+
+  // Build agent list sidebar + content
+  var sorted = state.agents.slice().sort(function(a, b) {
+    var order = { running: 0, failed: 1, completed: 2 };
+    return (order[a.status] !== undefined ? order[a.status] : 3) - (order[b.status] !== undefined ? order[b.status] : 3);
+  });
+
+  var listHTML = '';
+  sorted.forEach(function(ag) {
+    var realIdx = state.agents.indexOf(ag);
+    var isActive = (realIdx === dpCurrentAgentIdx);
+    listHTML += '<div class="dp-agent-item' + (isActive ? ' active' : '') + '" onclick="selectDpAgent(' + realIdx + ')">' +
+      '<span class="dai-status ' + ag.status + '"></span>' +
+      '<span class="dai-desc">' + esc(ag.description) + '</span>' +
+      '<div class="dai-meta">' + agentBadge(ag.type).label + ' &middot; ' + formatDuration(ag.startedAt, ag.completedAt) + '</div>' +
+    '</div>';
+  });
+
+  var badge = agentBadge(a.type);
+  var dur = a.startedAt ? formatDuration(a.startedAt, a.completedAt) : '';
+
+  c.innerHTML =
+    '<div class="dp-layout">' +
+      '<div class="dp-agent-list">' +
+        '<div class="dp-agent-list-header"><span>Agents (' + sorted.length + ')</span></div>' +
+        '<div class="dp-agent-items">' + listHTML + '</div>' +
+      '</div>' +
+      '<div class="dp-content">' +
+        '<div class="detail-panel-header">' +
+          '<div class="dp-title">' + esc(a.description) + '</div>' +
+        '</div>' +
+        '<div class="dp-meta">' +
+          '<div class="dp-meta-item"><span class="agent-badge ' + badge.cls + '">' + badge.label + '</span></div>' +
+          '<div class="dp-meta-item"><div class="agent-status-dot dot-' + a.status + '"></div><span>' + esc(a.status) + '</span></div>' +
+          (dur ? '<div class="dp-meta-item"><span class="dp-label">Duration:</span> ' + dur + '</div>' : '') +
+          '<div class="dp-meta-item"><span class="dp-label">Started:</span> ' + formatTime(a.startedAt) + '</div>' +
+        '</div>' +
+        '<div class="dp-tabs">' +
+          '<div class="dp-tab' + (dpCurrentTab==='logs'?' active':'') + '" onclick="dpSwitchTab(\'logs\')">Logs</div>' +
+          '<div class="dp-tab' + (dpCurrentTab==='summary'?' active':'') + '" onclick="dpSwitchTab(\'summary\')">Summary</div>' +
+          '<div class="dp-tab' + (dpCurrentTab==='terminal'?' active':'') + '" onclick="dpSwitchTab(\'terminal\')">Terminal</div>' +
+        '</div>' +
+        '<div class="dp-body" id="dp-body" style="' + (dpCurrentTab==='terminal'?'display:none':'') + '">' +
+          renderDpTabContent() +
+        '</div>' +
+        '<div class="dp-terminal" id="dp-terminal" style="' + (dpCurrentTab==='terminal'?'display:flex':'display:none') + '">' +
+          '<div class="dp-terminal-output" id="dp-term-output">' + dpTermHistoryOutput + '</div>' +
+          '<div class="dp-terminal-input">' +
+            '<span class="term-prompt">$</span>' +
+            '<input id="dp-term-input" placeholder="Type a command..." autocomplete="off" />' +
+            '<button class="term-run" onclick="runTermCommand()">Run</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+
+  // Re-bind terminal input
+  dpTermInput = document.getElementById('dp-term-input');
+  dpTermOutput = document.getElementById('dp-term-output');
+  if (dpTermInput) {
+    dpTermInput.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') runTermCommand();
+      if (e.key === 'ArrowUp' && dpTermHistory.length) {
+        dpTermInput.value = dpTermHistory[dpTermHistory.length - 1];
+      }
+    });
+    if (dpCurrentTab === 'terminal') dpTermInput.focus();
+  }
+}
+
+var dpTermHistoryOutput = '';
+
+function dpSwitchTab(tab) {
+  dpCurrentTab = tab;
+  renderAgentDetailPage(document.getElementById('content'));
+}
+
+function renderDpTabContent() {
+  if (!dpCurrentAgent) return '';
+  var a = dpCurrentAgent;
+
+  if (dpCurrentTab === 'logs') {
+    var desc = (a.description || '').toLowerCase();
+    var agentType = (a.type || '').toLowerCase();
+    var relatedLogs = state.log.filter(function(l) {
+      var msg = (l.message || '').toLowerCase();
+      var agent = (l.agent || '').toLowerCase();
+      return msg.indexOf(desc) >= 0 || agent.indexOf(agentType) >= 0 ||
+        (desc.length > 10 && msg.indexOf(desc.substring(0, 30)) >= 0);
+    });
+    if (relatedLogs.length === 0) {
+      var startT = a.startedAt ? new Date(a.startedAt).getTime() : 0;
+      var endT = a.completedAt ? new Date(a.completedAt).getTime() : Date.now();
+      relatedLogs = state.log.filter(function(l) {
+        if (!l.time) return false;
+        var t = new Date(l.time).getTime();
+        return t >= startT - 2000 && t <= endT + 2000;
+      });
+    }
+    return '<div class="dp-section"><div class="dp-section-title">Agent Events <span class="count">' + relatedLogs.length + '</span></div></div>' +
+      '<div class="dp-log-entries">' +
+        (relatedLogs.length
+          ? relatedLogs.map(logEntryHTML).join('')
+          : '<div style="padding:20px 28px;color:var(--text-dim);font-size:11px">No events captured for this agent.</div>') +
+      '</div>';
+
+  } else if (dpCurrentTab === 'summary') {
+    var inTok = a.estimatedInputTokens || 0;
+    var outTok = a.estimatedOutputTokens || 0;
+    var html = '<div class="dp-section">';
+    html += '<div class="dp-section-title">Agent Info</div>';
+    html += '<table style="width:100%;font-size:11px;border-collapse:collapse">';
+    html += '<tr><td style="padding:4px 8px;color:var(--text-dim)">Type</td><td style="padding:4px 8px">' + esc(a.type) + '</td></tr>';
+    html += '<tr><td style="padding:4px 8px;color:var(--text-dim)">Status</td><td style="padding:4px 8px">' + esc(a.status) + '</td></tr>';
+    html += '<tr><td style="padding:4px 8px;color:var(--text-dim)">Description</td><td style="padding:4px 8px">' + esc(a.description) + '</td></tr>';
+    html += '<tr><td style="padding:4px 8px;color:var(--text-dim)">Started</td><td style="padding:4px 8px">' + (a.startedAt || '--') + '</td></tr>';
+    html += '<tr><td style="padding:4px 8px;color:var(--text-dim)">Completed</td><td style="padding:4px 8px">' + (a.completedAt || '--') + '</td></tr>';
+    html += '<tr><td style="padding:4px 8px;color:var(--text-dim)">Background</td><td style="padding:4px 8px">' + (a.background ? 'Yes' : 'No') + '</td></tr>';
+    html += '<tr><td style="padding:4px 8px;color:var(--cyan)">Est. Input Tokens</td><td style="padding:4px 8px;color:var(--cyan)">' + formatTokens(inTok) + '</td></tr>';
+    html += '<tr><td style="padding:4px 8px;color:var(--cyan)">Est. Output Tokens</td><td style="padding:4px 8px;color:var(--cyan)">' + formatTokens(outTok) + '</td></tr>';
+    html += '<tr><td style="padding:4px 8px;color:var(--cyan);font-weight:600">Total Est. Tokens</td><td style="padding:4px 8px;color:var(--cyan);font-weight:600">' + formatTokens(inTok + outTok) + '</td></tr>';
+    html += '</table></div>';
+    return html;
+  }
+  return '';
+}
+
+function renderDetailPanel() {
+  // Legacy — now handled by renderAgentDetailPage
+  if (currentPage === 'agent-detail') {
+    renderAgentDetailPage(document.getElementById('content'));
+    return;
+  }
+  if (!dpCurrentAgent) return;
+  var a = dpCurrentAgent;
+
+  // Header
+  document.getElementById('dp-title').textContent = a.description || 'Agent';
+
+  // Meta
+  var badge = agentBadge(a.type);
+  var dur = a.startedAt ? formatDuration(a.startedAt, a.completedAt) : '';
+  document.getElementById('dp-meta').innerHTML =
+    '<div class="dp-meta-item"><span class="agent-badge ' + badge.cls + '">' + badge.label + '</span></div>' +
+    '<div class="dp-meta-item"><div class="agent-status-dot dot-' + a.status + '"></div><span>' + esc(a.status) + '</span></div>' +
+    (dur ? '<div class="dp-meta-item"><span class="dp-label">Duration:</span> ' + dur + '</div>' : '') +
+    '<div class="dp-meta-item"><span class="dp-label">Started:</span> ' + formatTime(a.startedAt) + '</div>';
+
+  var body = document.getElementById('dp-body');
+
+  if (dpCurrentTab === 'logs') {
+    // Filter events related to this agent
+    var desc = (a.description || '').toLowerCase();
+    var agentType = (a.type || '').toLowerCase();
+    var relatedLogs = state.log.filter(function(l) {
+      var msg = (l.message || '').toLowerCase();
+      var agent = (l.agent || '').toLowerCase();
+      return msg.indexOf(desc) >= 0 || agent.indexOf(agentType) >= 0 ||
+        (desc && msg.indexOf(desc.substring(0, 30)) >= 0);
+    });
+
+    if (relatedLogs.length === 0) {
+      // Show all logs around the agent's time window
+      var startT = a.startedAt ? new Date(a.startedAt).getTime() : 0;
+      var endT = a.completedAt ? new Date(a.completedAt).getTime() : Date.now();
+      relatedLogs = state.log.filter(function(l) {
+        if (!l.time) return false;
+        var t = new Date(l.time).getTime();
+        return t >= startT - 2000 && t <= endT + 2000;
+      });
+    }
+
+    body.innerHTML =
+      '<div class="dp-section">' +
+        '<div class="dp-section-title">Agent Events <span class="count">' + relatedLogs.length + '</span></div>' +
+      '</div>' +
+      '<div class="dp-log-entries">' +
+        (relatedLogs.length
+          ? relatedLogs.map(logEntryHTML).join('')
+          : '<div style="padding:20px;color:var(--text-dim);font-size:11px">No events captured for this agent. Events appear when agents emit status updates.</div>') +
+      '</div>';
+
+  } else if (dpCurrentTab === 'summary') {
+    var inTok2 = a.estimatedInputTokens || 0;
+    var outTok2 = a.estimatedOutputTokens || 0;
+    var html = '<div class="dp-section">';
+    html += '<div class="dp-section-title">Agent Info</div>';
+    html += '<table style="width:100%;font-size:11px;border-collapse:collapse">';
+    html += '<tr><td style="padding:4px 8px;color:var(--text-dim)">Type</td><td style="padding:4px 8px">' + esc(a.type) + '</td></tr>';
+    html += '<tr><td style="padding:4px 8px;color:var(--text-dim)">Status</td><td style="padding:4px 8px">' + esc(a.status) + '</td></tr>';
+    html += '<tr><td style="padding:4px 8px;color:var(--text-dim)">Description</td><td style="padding:4px 8px">' + esc(a.description) + '</td></tr>';
+    html += '<tr><td style="padding:4px 8px;color:var(--text-dim)">Started</td><td style="padding:4px 8px">' + (a.startedAt || '--') + '</td></tr>';
+    html += '<tr><td style="padding:4px 8px;color:var(--text-dim)">Completed</td><td style="padding:4px 8px">' + (a.completedAt || '--') + '</td></tr>';
+    html += '<tr><td style="padding:4px 8px;color:var(--text-dim)">Background</td><td style="padding:4px 8px">' + (a.background ? 'Yes' : 'No') + '</td></tr>';
+    html += '<tr><td style="padding:4px 8px;color:var(--cyan)">Est. Input Tokens</td><td style="padding:4px 8px;color:var(--cyan)">' + formatTokens(inTok2) + '</td></tr>';
+    html += '<tr><td style="padding:4px 8px;color:var(--cyan)">Est. Output Tokens</td><td style="padding:4px 8px;color:var(--cyan)">' + formatTokens(outTok2) + '</td></tr>';
+    html += '<tr><td style="padding:4px 8px;color:var(--cyan);font-weight:600">Total Est. Tokens</td><td style="padding:4px 8px;color:var(--cyan);font-weight:600">' + formatTokens(inTok2 + outTok2) + '</td></tr>';
+    html += '</table>';
+    html += '</div>';
+
+    // If there are subtasks, files, tests from pipeline data
+    if (a.subtasks && a.subtasks.length) {
+      html += '<div class="dp-section"><div class="dp-section-title">Subtasks</div>';
+      a.subtasks.forEach(function(t) {
+        html += '<div style="padding:4px 8px;border-left:2px solid ' +
+          (t.status==='completed'?'var(--green)':t.status==='running'?'var(--yellow)':'var(--border)') +
+          ';margin-bottom:4px;font-size:11px">' + subtaskIcon(t.status) + ' ' + esc(t.name) +
+          (t.detail ? '<div style="color:var(--text-dim);font-size:10px;padding-left:18px">' + esc(t.detail) + '</div>' : '') +
+          '</div>';
+      });
+      html += '</div>';
+    }
+
+    if (a.files && a.files.length) {
+      html += '<div class="dp-section"><div class="dp-section-title">Files Changed</div>';
+      a.files.forEach(function(f) {
+        html += '<div style="padding:3px 8px;font-size:10px;color:var(--text-dim)">' +
+          '<span style="color:var(--accent);font-weight:600">' + esc(f.type || 'mod') + '</span> ' + esc(f.path) + '</div>';
+      });
+      html += '</div>';
+    }
+
+    if (a.tests && a.tests.length) {
+      html += '<div class="dp-section"><div class="dp-section-title">Test Results</div>';
+      a.tests.forEach(function(t) {
+        var c = t.status === 'PASS' ? 'var(--green)' : 'var(--red)';
+        html += '<div style="padding:3px 8px;font-size:10px">' +
+          '<span style="color:' + c + ';font-weight:600">' + esc(t.status) + '</span> ' + esc(t.name) +
+          (t.detail ? ' <span style="color:var(--text-dim)">' + esc(t.detail) + '</span>' : '') + '</div>';
+      });
+      html += '</div>';
+    }
+
+    body.innerHTML = html;
+
+  } else if (dpCurrentTab === 'terminal') {
+    body.innerHTML =
+      '<div class="dp-section">' +
+        '<div class="dp-section-title">Terminal</div>' +
+        '<p style="font-size:11px;color:var(--text-dim);margin:0">Run shell commands. Output appears below. Commands execute in your home directory.</p>' +
+      '</div>';
+  }
+}
+
+function runTermCommand() {
+  var input = document.getElementById('dp-term-input');
+  var output = document.getElementById('dp-term-output');
+  if (!input || !output) return;
+  var cmd = input.value.trim();
+  if (!cmd) return;
+
+  dpTermHistory.push(cmd);
+  input.value = '';
+
+  // Append to persistent output
+  dpTermHistoryOutput += '<div class="term-cmd">$ ' + esc(cmd) + '</div>';
+  output.innerHTML = dpTermHistoryOutput;
+  output.scrollTop = output.scrollHeight;
+
+  fetch('/api/exec', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ command: cmd })
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    var result = '';
+    if (data.error) result += '<div class="term-err">' + esc(data.error) + '</div>';
+    if (data.stdout) result += '<div class="term-stdout">' + esc(data.stdout) + '</div>';
+    if (data.stderr) result += '<div class="term-stderr">' + esc(data.stderr) + '</div>';
+    if (!data.stdout && !data.stderr && !data.error) result += '<div class="term-stdout" style="color:var(--text-dim)">(no output)</div>';
+    dpTermHistoryOutput += result;
+    var el = document.getElementById('dp-term-output');
+    if (el) { el.innerHTML = dpTermHistoryOutput; el.scrollTop = el.scrollHeight; }
+  })
+  .catch(function(e) {
+    dpTermHistoryOutput += '<div class="term-err">Error: ' + esc(e.message) + '</div>';
+    var el = document.getElementById('dp-term-output');
+    if (el) { el.innerHTML = dpTermHistoryOutput; el.scrollTop = el.scrollHeight; }
+  });
+}
+
+// ===== MAKE AGENT CARDS CLICKABLE =====
+function attachAgentCardClicks() {
+  document.querySelectorAll('.agent-card').forEach(function(card, idx) {
+    if (!card.dataset.bound) {
+      card.dataset.bound = '1';
+      card.onclick = function() { openDetailPanel(idx); };
+    }
+  });
+}
+
+// Override renderAgents to attach click handlers after render
+var _origRenderAgents = renderAgents;
+renderAgents = function(c) {
+  _origRenderAgents(c);
+  setTimeout(attachAgentCardClicks, 50);
+};
+
+var _origRenderDashboard = renderDashboard;
+renderDashboard = function(c) {
+  _origRenderDashboard(c);
+  setTimeout(attachAgentCardClicks, 50);
+};
+
+// Init detail panel on load
+initDetailPanel();
+
+// ===== INIT =====
+poll();
+pollTimer = setInterval(poll, 800);
+</script>
+</body>
+</html>

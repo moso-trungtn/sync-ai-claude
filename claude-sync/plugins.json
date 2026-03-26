@@ -1,0 +1,17 @@
+{
+  "description": "Plugins to install on new devices. Run setup.sh to auto-install.",
+  "marketplaces": [
+    {
+      "name": "claude-plugins-official",
+      "source": "anthropics/claude-plugins-official"
+    },
+    {
+      "name": "ui-ux-pro-max-skill",
+      "source": "nextlevelbuilder/ui-ux-pro-max-skill"
+    }
+  ],
+  "plugins": [
+    "frontend-design@claude-plugins-official",
+    "ui-ux-pro-max@ui-ux-pro-max-skill"
+  ]
+}
