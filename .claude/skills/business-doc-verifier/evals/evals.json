@@ -1,0 +1,44 @@
+{
+  "skill_name": "business-doc-verifier",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Verify ENTITY_INHERITANCE_GUIDE.md — check every inheritance chain and field claim it makes against the actual Java code. Tell me what's correct and what's wrong.",
+      "expected_output": "Verification report with each claim from the guide classified as CONFIRMED, CONFLICT, GAP, or STALE, with code evidence for each verdict and a health score",
+      "files": [],
+      "expectations": [
+        "Output reads ENTITY_INHERITANCE_GUIDE.md and extracts claims",
+        "Output verifies claims against actual Java class files",
+        "Output classifies each finding (CONFIRMED/CONFLICT/GAP/STALE)",
+        "Output includes file paths as evidence for each verdict",
+        "Output produces a health score percentage"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "I'm worried LOAN_PIPELINE_GUIDE.md is outdated. Compare what it says about loan status transitions and views against the actual code. Show me every discrepancy.",
+      "expected_output": "Report showing each status transition and view configuration claimed in the guide, verified against code, with clear CONFLICT markers where docs don't match code",
+      "files": [],
+      "expectations": [
+        "Output extracts status transition claims from the guide",
+        "Output finds actual status transition logic in code",
+        "Output flags specific conflicts with before/after comparison",
+        "Output identifies undocumented features (GAPs)",
+        "Output provides actionable fix suggestions"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Run a full documentation health check on ALL guides in base/docs/. I want a summary showing which docs are trustworthy and which need urgent updates.",
+      "expected_output": "Dashboard-style report with health scores per document, total claims verified, critical conflicts highlighted, and a priority-ordered fix list",
+      "files": [],
+      "expectations": [
+        "Output analyzes multiple documentation files",
+        "Output provides per-document health scores",
+        "Output ranks documents by reliability",
+        "Output prioritizes critical conflicts",
+        "Output generates both markdown and HTML outputs"
+      ]
+    }
+  ]
+}
