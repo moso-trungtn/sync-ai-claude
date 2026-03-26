@@ -1223,6 +1223,7 @@ html, body {
 
 <script>
 // ===== STATE =====
+var activeCharts = {};
 let currentPage = 'dashboard';
 let state = { agents: [], activeCount: 0, completedCount: 0, failedCount: 0, totalCount: 0, pipeline: null, meta: {}, log: [] };
 let connected = false;
@@ -1251,6 +1252,7 @@ function toggleSidebar() {
 
 // ===== RENDER PAGES =====
 function renderPage() {
+  destroyCharts();
   var c = document.getElementById('content');
   switch (currentPage) {
     case 'dashboard': renderDashboard(c); break;
@@ -1313,20 +1315,32 @@ function renderDashboard(c) {
   setTimeout(function() { renderDashboardCharts(tu); }, 50);
 }
 
+function destroyCharts() {
+  Object.keys(activeCharts).forEach(function(k) {
+    if (activeCharts[k]) { activeCharts[k].destroy(); delete activeCharts[k]; }
+  });
+}
+
+function makeChart(id, config) {
+  if (activeCharts[id]) { activeCharts[id].destroy(); }
+  var el = document.getElementById(id);
+  if (!el) return null;
+  var chart = new Chart(el, config);
+  activeCharts[id] = chart;
+  return chart;
+}
+
 function renderDashboardCharts(tu) {
   if (typeof Chart === 'undefined') return;
-  var chartDefaults = {
-    color: '#94a3b8',
-    font: { family: "'JetBrains Mono', monospace", size: 10 },
-  };
-  Chart.defaults.color = chartDefaults.color;
-  Chart.defaults.font.family = chartDefaults.font.family;
-  Chart.defaults.font.size = chartDefaults.font.size;
+  destroyCharts();
+  Chart.defaults.color = '#94a3b8';
+  Chart.defaults.font.family = "'JetBrains Mono', monospace";
+  Chart.defaults.font.size = 10;
 
   // Agent status doughnut
   var statusEl = document.getElementById('chart-agent-status');
   if (statusEl) {
-    new Chart(statusEl, {
+    makeChart('chart-agent-status', {
       type: 'doughnut',
       data: {
         labels: ['Running', 'Completed', 'Failed'],
@@ -1351,7 +1365,7 @@ function renderDashboardCharts(tu) {
   // Token breakdown doughnut
   var tokenEl = document.getElementById('chart-token-donut');
   if (tokenEl && tu) {
-    new Chart(tokenEl, {
+    makeChart('chart-token-donut', {
       type: 'doughnut',
       data: {
         labels: ['Input', 'Output', 'Cache Read', 'Cache Create'],
@@ -2107,6 +2121,7 @@ function renderTokensContent(c) {
 
 function renderTokenCharts(t, agents) {
   if (typeof Chart === 'undefined') return;
+  destroyCharts();
   Chart.defaults.color = '#94a3b8';
   Chart.defaults.font.family = "'JetBrains Mono', monospace";
   Chart.defaults.font.size = 10;
@@ -2114,7 +2129,7 @@ function renderTokenCharts(t, agents) {
   // 1. Token Distribution — Doughnut
   var distEl = document.getElementById('chart-tok-dist');
   if (distEl) {
-    new Chart(distEl, {
+    makeChart('chart-tok-dist', {
       type: 'doughnut',
       data: {
         labels: ['Input', 'Output', 'Cache Read', 'Cache Create'],
@@ -2161,7 +2176,7 @@ function renderTokenCharts(t, agents) {
     });
     var projNames = Object.keys(projectMap).sort(function(a,b) { return projectMap[b]-projectMap[a]; }).slice(0,8);
     var projColors = ['#06b6d4','#8b5cf6','#10b981','#f59e0b','#ef4444','#f97316','#3b82f6','#ec4899'];
-    new Chart(projEl, {
+    makeChart('chart-tok-project', {
       type: 'polarArea',
       data: {
         labels: projNames,
@@ -2199,7 +2214,7 @@ function renderTokenCharts(t, agents) {
       var s = a.promptSnippet || a.agentId;
       return s.length > 40 ? s.substring(0,37) + '...' : s;
     });
-    new Chart(agentsEl, {
+    makeChart('chart-tok-agents', {
       type: 'bar',
       data: {
         labels: labels,
@@ -2509,6 +2524,14 @@ function formatDuration(start, end) {
 // ===== POLLING =====
 var pollTimer = null;
 var failCount = 0;
+var lastStateHash = '';
+
+function stateHash(data) {
+  return data.activeCount + ',' + data.completedCount + ',' + data.failedCount + ',' +
+    data.totalCount + ',' + data.log.length + ',' +
+    (data.pipeline ? data.pipeline.phase : '') + ',' +
+    (data.pipelines ? data.pipelines.length : 0);
+}
 
 function poll() {
   fetch('/status')
@@ -2517,18 +2540,38 @@ function poll() {
       return res.json();
     })
     .then(function(data) {
-      state = data;
       failCount = 0;
       setConnected(true);
+      var newHash = stateHash(data);
+      var changed = (newHash !== lastStateHash);
+      state = data;
+      lastStateHash = newHash;
       updateHeader();
-      if (['dashboard', 'agents', 'pipeline', 'log'].indexOf(currentPage) >= 0) {
-        renderPage();
+      // Only re-render if data changed, and skip pages with charts to avoid flicker
+      if (changed) {
+        if (['agents', 'pipeline', 'log'].indexOf(currentPage) >= 0) {
+          renderPage();
+        }
+        // For dashboard, only update the non-chart parts
+        if (currentPage === 'dashboard') {
+          updateDashboardStats();
+        }
       }
     })
     .catch(function(e) {
       failCount++;
       if (failCount > 3) setConnected(false);
     });
+}
+
+function updateDashboardStats() {
+  // Update stat card values without re-rendering charts
+  var cards = document.querySelectorAll('.stat-card .stat-value');
+  if (cards.length >= 3) {
+    cards[0].textContent = state.activeCount;
+    cards[1].textContent = state.completedCount;
+    cards[2].textContent = state.failedCount;
+  }
 }
 
 function setConnected(ok) {
@@ -2902,7 +2945,7 @@ initDetailPanel();
 
 // ===== INIT =====
 poll();
-pollTimer = setInterval(poll, 800);
+pollTimer = setInterval(poll, 3000);
 </script>
 </body>
 </html>
