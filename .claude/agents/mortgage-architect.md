@@ -16,7 +16,7 @@ disallowedTools:
   - Write
   - Edit
   - NotebookEdit
-model: sonnet
+model: opus
 memory: project
 ---
 

@@ -1,7 +1,7 @@
 ---
 name: dev
 description: Dev Lead. Implements code changes based on BA Lead analysis or direct user requests. Writes clean, tested code following project conventions.
-model: sonnet
+model: opus
 tools: Bash, Read, Write, Edit, Glob, Grep
 ---
 

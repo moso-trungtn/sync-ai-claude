@@ -1,7 +1,7 @@
 ---
 name: qc
 description: QC Lead. Runs tests, validates code quality, checks UI/UX standards, and reports pass/fail with detailed diagnostics and fix suggestions.
-model: sonnet
+model: opus
 tools: Bash, Read, Glob, Grep, mcp__plugin_context7_context7__resolve-library-id, mcp__plugin_context7_context7__query-docs
 ---
 
