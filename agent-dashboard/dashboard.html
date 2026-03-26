@@ -2398,9 +2398,13 @@ function agentCardHTML(a) {
   var inTok = a.estimatedInputTokens || 0;
   var outTok = a.estimatedOutputTokens || 0;
   var totalTok = inTok + outTok;
-  return '<div class="agent-card">' +
+  var origin = agentOrigin(a);
+  return '<div class="agent-card" style="border-left:3px solid ' + origin.color + '">' +
     '<div class="agent-card-header">' +
-      '<span class="agent-badge ' + badge.cls + '">' + badge.label + '</span>' +
+      '<div style="display:flex;align-items:center;gap:6px">' +
+        '<span class="agent-badge ' + badge.cls + '">' + badge.label + '</span>' +
+        '<span style="font-size:9px;padding:2px 6px;border-radius:3px;background:' + origin.bg + ';color:' + origin.color + ';font-weight:600;letter-spacing:0.3px">' + origin.label + '</span>' +
+      '</div>' +
       '<div style="display:flex;align-items:center;gap:8px">' +
         (totalTok > 0 ? '<span class="token-badge">' + formatTokens(totalTok) + ' tok</span>' : '') +
         (a.background ? '<span class="bg-indicator">BG</span>' : '') +
@@ -2415,6 +2419,25 @@ function agentCardHTML(a) {
       (totalTok > 0 ? '<span style="color:var(--cyan)">In:' + formatTokens(inTok) + ' Out:' + formatTokens(outTok) + '</span>' : '') +
     '</div>' +
   '</div>';
+}
+
+function agentOrigin(a) {
+  var origin = a.origin || '';
+  var type = (a.type || '').toLowerCase();
+
+  // Built-in auto types
+  if (type === 'explore') return { label: 'EXPLORE', color: '#06b6d4', bg: 'rgba(6,182,212,0.12)' };
+  if (type === 'plan') return { label: 'PLAN', color: '#8b5cf6', bg: 'rgba(139,92,246,0.12)' };
+  if (type === 'claude-code-guide') return { label: 'DOCS', color: '#64748b', bg: 'rgba(100,116,139,0.12)' };
+  if (type === 'statusline-setup') return { label: 'SYSTEM', color: '#64748b', bg: 'rgba(100,116,139,0.12)' };
+
+  // Custom agent (explicitly marked or non-general type)
+  if (origin === 'custom' || (type !== 'general-purpose' && type !== '')) {
+    return { label: 'CUSTOM', color: '#10b981', bg: 'rgba(16,185,129,0.12)' };
+  }
+
+  // General-purpose auto
+  return { label: 'AUTO', color: '#f59e0b', bg: 'rgba(245,158,11,0.12)' };
 }
 
 function logEntryHTML(l) {

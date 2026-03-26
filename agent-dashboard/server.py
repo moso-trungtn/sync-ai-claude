@@ -117,9 +117,16 @@ def build_state_from_events():
                 if etype == "agent:spawn":
                     desc = event.get("description", "unknown")
                     prompt_chars = event.get("promptChars", 0)
+                    # Determine origin: auto (Claude internal) vs custom (user-defined)
+                    agent_type = event.get("agentType", "general-purpose")
+                    origin = event.get("origin", "")
+                    if not origin:
+                        auto_types = {"Explore", "Plan", "claude-code-guide", "statusline-setup"}
+                        origin = "auto" if agent_type in auto_types else "custom"
                     agent_entry = {
                         "id": event.get("agentId", f"agent-{len(agents_by_desc)}"),
-                        "type": event.get("agentType", "general-purpose"),
+                        "type": agent_type,
+                        "origin": origin,
                         "description": desc,
                         "status": "running",
                         "background": event.get("background", False),

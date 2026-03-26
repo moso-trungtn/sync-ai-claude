@@ -21,19 +21,29 @@ import sys,json
 d=json.load(sys.stdin)
 ti = d.get('tool_input',{})
 prompt = ti.get('prompt','')
+# Detect origin: 'auto' for built-in subagent types, 'custom' for user-defined
+stype = ti.get('subagent_type','general-purpose')
+auto_types = ['Explore', 'Plan', 'claude-code-guide', 'statusline-setup']
+origin = 'auto' if stype in auto_types else 'custom'
+# If general-purpose, check for model override or specific patterns
+if stype == 'general-purpose' and not ti.get('model'):
+    origin = 'auto'
 print(ti.get('description','unknown'))
-print(ti.get('subagent_type','general-purpose'))
+print(stype)
 print(ti.get('run_in_background','false'))
 print(len(prompt))
+print(origin)
 " 2>/dev/null || echo "unknown
 general-purpose
 false
-0")
+0
+auto")
 
 DESCRIPTION=$(echo "$PARSED" | sed -n '1p')
 AGENT_TYPE=$(echo "$PARSED" | sed -n '2p')
 BACKGROUND=$(echo "$PARSED" | sed -n '3p')
 PROMPT_CHARS=$(echo "$PARSED" | sed -n '4p')
+ORIGIN=$(echo "$PARSED" | sed -n '5p')
 
 TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 AGENT_ID="agent-$(date +%s%N | cut -c1-13)"
@@ -45,7 +55,7 @@ DESC_ESC=$(_esc "$DESCRIPTION")
 TYPE_ESC=$(_esc "$AGENT_TYPE")
 
 # Emit agent start event
-echo "{\"type\":\"agent:spawn\",\"agentId\":\"$AGENT_ID\",\"agentType\":$TYPE_ESC,\"description\":$DESC_ESC,\"background\":$BACKGROUND,\"promptChars\":$PROMPT_CHARS,\"time\":\"$TIMESTAMP\",\"message\":\"Spawning $AGENT_TYPE: $DESCRIPTION\"}" >> "$EVENTS_FILE"
+echo "{\"type\":\"agent:spawn\",\"agentId\":\"$AGENT_ID\",\"agentType\":$TYPE_ESC,\"description\":$DESC_ESC,\"background\":$BACKGROUND,\"promptChars\":$PROMPT_CHARS,\"origin\":\"$ORIGIN\",\"time\":\"$TIMESTAMP\",\"message\":\"Spawning $AGENT_TYPE: $DESCRIPTION\"}" >> "$EVENTS_FILE"
 
 # Auto-launch dashboard server if not running
 if [ -f "$PID_FILE" ]; then
