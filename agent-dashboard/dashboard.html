@@ -6,6 +6,7 @@
 <title>Claude Code Agent Dashboard</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 <style>
 *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -546,6 +547,38 @@ html, body {
   line-height: 1.6;
   max-height: 400px;
   overflow-y: auto;
+}
+
+/* ===== CHARTS ===== */
+.chart-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+.chart-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 18px;
+  position: relative;
+}
+.chart-card-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 14px;
+}
+.chart-card canvas {
+  max-height: 220px;
+}
+.chart-card-full {
+  grid-column: 1 / -1;
+}
+.chart-card-full canvas {
+  max-height: 180px;
 }
 
 /* ===== TOKEN USAGE ===== */
@@ -1260,6 +1293,13 @@ function renderDashboard(c) {
       '<div class="stat-card failed"><div class="stat-label">Failed</div><div class="stat-value">' + state.failedCount + '</div></div>' +
       tokenCardHTML +
     '</div>' +
+    // Charts row
+    '<div class="chart-grid">' +
+      '<div class="chart-card"><div class="chart-card-title">Agent Status</div><canvas id="chart-agent-status"></canvas></div>' +
+      (tu && tu.totalTokens > 0
+        ? '<div class="chart-card"><div class="chart-card-title">Token Breakdown</div><canvas id="chart-token-donut"></canvas></div>'
+        : '') +
+    '</div>' +
     '<div class="section-title">Recent Agents <span class="count">' + recentAgents.length + '</span></div>' +
     (recentAgents.length
       ? '<div class="agent-grid">' + recentAgents.map(agentCardHTML).join('') + '</div>'
@@ -1268,7 +1308,76 @@ function renderDashboard(c) {
     (recentLog.length
       ? '<div class="log-container"><div class="log-entries">' + recentLog.map(logEntryHTML).join('') + '</div></div>'
       : emptyHTML('No events', 'Events will stream in as agents work.'));
+
+  // Render charts after DOM is ready
+  setTimeout(function() { renderDashboardCharts(tu); }, 50);
 }
+
+function renderDashboardCharts(tu) {
+  if (typeof Chart === 'undefined') return;
+  var chartDefaults = {
+    color: '#94a3b8',
+    font: { family: "'JetBrains Mono', monospace", size: 10 },
+  };
+  Chart.defaults.color = chartDefaults.color;
+  Chart.defaults.font.family = chartDefaults.font.family;
+  Chart.defaults.font.size = chartDefaults.font.size;
+
+  // Agent status doughnut
+  var statusEl = document.getElementById('chart-agent-status');
+  if (statusEl) {
+    new Chart(statusEl, {
+      type: 'doughnut',
+      data: {
+        labels: ['Running', 'Completed', 'Failed'],
+        datasets: [{
+          data: [state.activeCount || 0, state.completedCount || 0, state.failedCount || 0],
+          backgroundColor: ['#f59e0b', '#10b981', '#ef4444'],
+          borderColor: '#111827',
+          borderWidth: 2,
+          hoverOffset: 6,
+        }]
+      },
+      options: {
+        cutout: '65%',
+        responsive: true,
+        plugins: {
+          legend: { position: 'bottom', labels: { padding: 14, usePointStyle: true, pointStyle: 'circle' } },
+        }
+      }
+    });
+  }
+
+  // Token breakdown doughnut
+  var tokenEl = document.getElementById('chart-token-donut');
+  if (tokenEl && tu) {
+    new Chart(tokenEl, {
+      type: 'doughnut',
+      data: {
+        labels: ['Input', 'Output', 'Cache Read', 'Cache Create'],
+        datasets: [{
+          data: [
+            tu.totalInputTokens || 0,
+            tu.totalOutputTokens || 0,
+            tu.totalTokens - (tu.totalInputTokens || 0) - (tu.totalOutputTokens || 0) > 0
+              ? tu.totalTokens - (tu.totalInputTokens || 0) - (tu.totalOutputTokens || 0) : 0,
+            0
+          ],
+          backgroundColor: ['#10b981', '#8b5cf6', '#334155', '#f59e0b'],
+          borderColor: '#111827',
+          borderWidth: 2,
+          hoverOffset: 6,
+        }]
+      },
+      options: {
+        cutout: '65%',
+        responsive: true,
+        plugins: {
+          legend: { position: 'bottom', labels: { padding: 14, usePointStyle: true, pointStyle: 'circle' } },
+        }
+      }
+    });
+  }
 
 function renderCustomAgents(c) {
   if (!cache.customAgents) {
@@ -1868,6 +1977,13 @@ function renderTokensContent(c) {
     '<div class="token-summary-card"><div class="tsc-label">API Calls</div><div class="tsc-value" style="color:var(--orange)">' + t.totalApiCalls + '</div><div class="tsc-sub">Total requests</div></div>' +
   '</div>';
 
+  // Charts
+  html += '<div class="chart-grid">' +
+    '<div class="chart-card"><div class="chart-card-title">Token Distribution</div><canvas id="chart-tok-dist"></canvas></div>' +
+    '<div class="chart-card"><div class="chart-card-title">Tokens by Project</div><canvas id="chart-tok-project"></canvas></div>' +
+    '<div class="chart-card chart-card-full"><div class="chart-card-title">Top 15 Agents by Token Usage</div><canvas id="chart-tok-agents"></canvas></div>' +
+  '</div>';
+
   // Plan usage bar (if limit is set)
   var planLimit = cache.tokenUsage._planLimit || 0;
   if (planLimit > 0) {
@@ -1983,6 +2099,168 @@ function renderTokensContent(c) {
 
   html += '</tbody></table>';
   c.innerHTML = html;
+
+  // Render charts after DOM update
+  setTimeout(function() { renderTokenCharts(t, agents); }, 50);
+}
+
+function renderTokenCharts(t, agents) {
+  if (typeof Chart === 'undefined') return;
+  Chart.defaults.color = '#94a3b8';
+  Chart.defaults.font.family = "'JetBrains Mono', monospace";
+  Chart.defaults.font.size = 10;
+
+  // 1. Token Distribution — Doughnut
+  var distEl = document.getElementById('chart-tok-dist');
+  if (distEl) {
+    new Chart(distEl, {
+      type: 'doughnut',
+      data: {
+        labels: ['Input', 'Output', 'Cache Read', 'Cache Create'],
+        datasets: [{
+          data: [t.totalInputTokens, t.totalOutputTokens, t.totalCacheRead, t.totalCacheCreate],
+          backgroundColor: [
+            'rgba(16,185,129,0.85)',
+            'rgba(139,92,246,0.85)',
+            'rgba(51,65,85,0.85)',
+            'rgba(245,158,11,0.85)',
+          ],
+          borderColor: '#111827',
+          borderWidth: 3,
+          hoverOffset: 8,
+        }]
+      },
+      options: {
+        cutout: '60%',
+        responsive: true,
+        plugins: {
+          legend: { position: 'right', labels: { padding: 16, usePointStyle: true, pointStyle: 'rectRounded' } },
+          tooltip: {
+            callbacks: {
+              label: function(ctx) {
+                var val = ctx.parsed;
+                var total = ctx.dataset.data.reduce(function(a,b){return a+b},0);
+                var pct = total > 0 ? ((val/total)*100).toFixed(1) : 0;
+                return ctx.label + ': ' + val.toLocaleString() + ' (' + pct + '%)';
+              }
+            }
+          }
+        }
+      }
+    });
+  }
+
+  // 2. Tokens by Project — Polar Area
+  var projEl = document.getElementById('chart-tok-project');
+  if (projEl) {
+    var projectMap = {};
+    agents.forEach(function(a) {
+      var proj = (a.project || 'unknown').replace(/-Users-trungthach-/,'').replace(/^-/,'').substring(0,25);
+      projectMap[proj] = (projectMap[proj] || 0) + a.totalTokens;
+    });
+    var projNames = Object.keys(projectMap).sort(function(a,b) { return projectMap[b]-projectMap[a]; }).slice(0,8);
+    var projColors = ['#06b6d4','#8b5cf6','#10b981','#f59e0b','#ef4444','#f97316','#3b82f6','#ec4899'];
+    new Chart(projEl, {
+      type: 'polarArea',
+      data: {
+        labels: projNames,
+        datasets: [{
+          data: projNames.map(function(n){return projectMap[n]}),
+          backgroundColor: projColors.map(function(c){return c+'cc'}),
+          borderColor: '#111827',
+          borderWidth: 2,
+        }]
+      },
+      options: {
+        responsive: true,
+        scales: {
+          r: {
+            display: false,
+          }
+        },
+        plugins: {
+          legend: { position: 'right', labels: { padding: 12, usePointStyle: true, pointStyle: 'rectRounded', font: { size: 9 } } },
+          tooltip: {
+            callbacks: {
+              label: function(ctx) { return ctx.label + ': ' + ctx.parsed.r.toLocaleString() + ' tokens'; }
+            }
+          }
+        }
+      }
+    });
+  }
+
+  // 3. Top 15 Agents — Horizontal Bar
+  var agentsEl = document.getElementById('chart-tok-agents');
+  if (agentsEl) {
+    var top = agents.slice(0, 15);
+    var labels = top.map(function(a) {
+      var s = a.promptSnippet || a.agentId;
+      return s.length > 40 ? s.substring(0,37) + '...' : s;
+    });
+    new Chart(agentsEl, {
+      type: 'bar',
+      data: {
+        labels: labels,
+        datasets: [
+          {
+            label: 'Input',
+            data: top.map(function(a){return a.inputTokens}),
+            backgroundColor: 'rgba(16,185,129,0.7)',
+            borderRadius: 3,
+          },
+          {
+            label: 'Output',
+            data: top.map(function(a){return a.outputTokens}),
+            backgroundColor: 'rgba(139,92,246,0.7)',
+            borderRadius: 3,
+          },
+          {
+            label: 'Cache Read',
+            data: top.map(function(a){return a.cacheReadTokens}),
+            backgroundColor: 'rgba(51,65,85,0.7)',
+            borderRadius: 3,
+          },
+          {
+            label: 'Cache Create',
+            data: top.map(function(a){return a.cacheCreateTokens}),
+            backgroundColor: 'rgba(245,158,11,0.7)',
+            borderRadius: 3,
+          },
+        ]
+      },
+      options: {
+        indexAxis: 'y',
+        responsive: true,
+        scales: {
+          x: {
+            stacked: true,
+            grid: { color: 'rgba(255,255,255,0.04)' },
+            ticks: {
+              callback: function(v) {
+                if (v >= 1000000) return (v/1000000).toFixed(1)+'M';
+                if (v >= 1000) return (v/1000).toFixed(0)+'K';
+                return v;
+              }
+            }
+          },
+          y: {
+            stacked: true,
+            grid: { display: false },
+            ticks: { font: { size: 9 } }
+          }
+        },
+        plugins: {
+          legend: { position: 'top', labels: { padding: 14, usePointStyle: true, pointStyle: 'rectRounded', font: { size: 10 } } },
+          tooltip: {
+            callbacks: {
+              label: function(ctx) { return ctx.dataset.label + ': ' + ctx.parsed.x.toLocaleString(); }
+            }
+          }
+        }
+      }
+    });
+  }
 }
 
 function renderMemory(c) {
