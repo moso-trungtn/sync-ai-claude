@@ -1180,10 +1180,6 @@ html, body {
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
       Settings
     </div>
-    <div class="nav-item" data-page="tokens" onclick="navigate('tokens')">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8"/><path d="M12 8v8m-2-6h4m-4 4h4"/></svg>
-      Token Usage
-    </div>
     <div class="nav-item" data-page="memory" onclick="navigate('memory')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12h6m-3-3v6"/><circle cx="12" cy="12" r="9"/><path d="M12 3c-1.5 2-2.5 4.5-2.5 9s1 7 2.5 9c1.5-2 2.5-4.5 2.5-9s-1-7-2.5-9z"/></svg>
       Memory
@@ -1262,7 +1258,7 @@ function renderPage() {
     case 'skills': renderSkills(c); break;
     case 'plugins': renderPlugins(c); break;
     case 'settings': renderSettings(c); break;
-    case 'tokens': renderTokens(c); break;
+    case 'tokens': navigate('dashboard'); break;
     case 'memory': renderMemory(c); break;
     case 'log': renderLog(c); break;
     case 'agent-detail': renderAgentDetailPage(c); break;
@@ -1270,49 +1266,160 @@ function renderPage() {
 }
 
 function renderDashboard(c) {
-  var recentAgents = state.agents.slice().reverse().slice(0, 5);
-  var recentLog = state.log.slice().reverse().slice(0, 10);
+  // Merged dashboard: load token data first, then render everything
+  if (!cache.tokenUsage) {
+    c.innerHTML = loadingHTML();
+    fetchTokenData(false, null);
+    // Also set a fallback in case token fetch takes time
+    setTimeout(function() {
+      if (!cache.tokenUsage && currentPage === 'dashboard') {
+        renderDashboardContent(c, null);
+      }
+    }, 2000);
+    return;
+  }
+  renderDashboardContent(c, cache.tokenUsage);
+}
 
-  var tu = state.tokenUsage || null;
-  var tokenCardHTML = '';
-  if (tu && tu.totalTokens > 0) {
-    var planName = (tu.plan && tu.plan.name) ? tu.plan.name : '';
-    var pctHTML = tu.limit > 0
-      ? '<div class="stat-sub" style="margin-top:6px"><div style="background:var(--surface2);border-radius:3px;height:6px;overflow:hidden"><div style="background:' + (tu.usagePercent > 80 ? 'var(--red)' : tu.usagePercent > 50 ? 'var(--yellow)' : 'var(--cyan)') + ';height:100%;width:' + Math.min(tu.usagePercent, 100) + '%;border-radius:3px;transition:width 0.3s"></div></div><div style="margin-top:3px">' + tu.usagePercent + '% of ' + formatTokens(tu.limit) + ' (' + planName + ')</div></div>'
-      : '<div class="stat-sub"><a href="#" onclick="navigate(\'tokens\');return false" style="color:var(--cyan);text-decoration:underline;font-size:10px">Set plan limit</a></div>';
-    tokenCardHTML = '<div class="stat-card tokens"><div class="stat-label">Tokens Used</div><div class="stat-value">' + formatTokens(tu.totalTokens) + '</div>' +
-      '<div class="stat-sub">In: ' + formatTokens(tu.totalInputTokens) + ' / Out: ' + formatTokens(tu.totalOutputTokens) + '</div>' +
-      pctHTML + '</div>';
-  } else {
-    tokenCardHTML = '<div class="stat-card tokens"><div class="stat-label">Tokens Used</div><div class="stat-value" style="font-size:14px;cursor:pointer" onclick="navigate(\'tokens\')">View Token Usage</div>' +
-      '<div class="stat-sub">Click to load from transcripts</div></div>';
+function renderDashboardContent(c, tokData) {
+  var recentAgents = state.agents.slice().reverse().slice(0, 10);
+  var t = tokData ? tokData.total : null;
+  var agents = tokData ? tokData.agents : [];
+  var html = '';
+
+  // ===== TOKEN SUMMARY CARDS =====
+  if (t) {
+    html += '<div class="token-summary-cards">' +
+      '<div class="token-summary-card"><div class="tsc-label">Total Tokens</div><div class="tsc-value">' + formatTokens(t.totalTokens) + '</div><div class="tsc-sub">' + t.totalTokens.toLocaleString() + '</div></div>' +
+      '<div class="token-summary-card"><div class="tsc-label">Input</div><div class="tsc-value" style="color:var(--green)">' + formatTokens(t.totalInputTokens) + '</div><div class="tsc-sub">Direct input</div></div>' +
+      '<div class="token-summary-card"><div class="tsc-label">Output</div><div class="tsc-value" style="color:var(--purple)">' + formatTokens(t.totalOutputTokens) + '</div><div class="tsc-sub">Generated</div></div>' +
+      '<div class="token-summary-card"><div class="tsc-label">Cache Read</div><div class="tsc-value" style="color:var(--text-dim)">' + formatTokens(t.totalCacheRead) + '</div><div class="tsc-sub">Cached</div></div>' +
+      '<div class="token-summary-card"><div class="tsc-label">Cache Create</div><div class="tsc-value" style="color:var(--yellow)">' + formatTokens(t.totalCacheCreate) + '</div><div class="tsc-sub">New cache</div></div>' +
+      '<div class="token-summary-card"><div class="tsc-label">API Calls</div><div class="tsc-value" style="color:var(--orange)">' + t.totalApiCalls + '</div><div class="tsc-sub">' + (t.agentCount || agents.length) + ' agents</div></div>' +
+    '</div>';
   }
 
-  c.innerHTML =
-    '<div class="stat-cards">' +
-      '<div class="stat-card active"><div class="stat-label">Active Agents</div><div class="stat-value">' + state.activeCount + '</div></div>' +
-      '<div class="stat-card completed"><div class="stat-label">Completed</div><div class="stat-value">' + state.completedCount + '</div></div>' +
-      '<div class="stat-card failed"><div class="stat-label">Failed</div><div class="stat-value">' + state.failedCount + '</div></div>' +
-      tokenCardHTML +
-    '</div>' +
-    // Charts row
-    '<div class="chart-grid">' +
-      '<div class="chart-card"><div class="chart-card-title">Agent Status</div><canvas id="chart-agent-status"></canvas></div>' +
-      (tu && tu.totalTokens > 0
-        ? '<div class="chart-card"><div class="chart-card-title">Token Breakdown</div><canvas id="chart-token-donut"></canvas></div>'
-        : '') +
-    '</div>' +
-    '<div class="section-title">Recent Agents <span class="count">' + recentAgents.length + '</span></div>' +
-    (recentAgents.length
-      ? '<div class="agent-grid">' + recentAgents.map(agentCardHTML).join('') + '</div>'
-      : emptyHTML('No agents yet', 'Agents will appear when Claude Code spawns subagents.')) +
-    '<div class="section-title">Recent Events <span class="count">' + recentLog.length + '</span></div>' +
-    (recentLog.length
-      ? '<div class="log-container"><div class="log-entries">' + recentLog.map(logEntryHTML).join('') + '</div></div>'
-      : emptyHTML('No events', 'Events will stream in as agents work.'));
+  // ===== CHARTS =====
+  if (t) {
+    html += '<div class="chart-grid">' +
+      '<div class="chart-card"><div class="chart-card-title">Token Distribution</div><canvas id="chart-tok-dist"></canvas></div>' +
+      '<div class="chart-card"><div class="chart-card-title">Tokens by Project</div><canvas id="chart-tok-project"></canvas></div>' +
+      '<div class="chart-card chart-card-full"><div class="chart-card-title">Top 15 Agents by Token Usage</div><canvas id="chart-tok-agents"></canvas></div>' +
+    '</div>';
+  }
 
-  // Render charts after DOM is ready
-  setTimeout(function() { renderDashboardCharts(tu); }, 50);
+  // ===== PLAN USAGE BAR =====
+  var planLimit = tokData ? (tokData._planLimit || 0) : 0;
+  if (planLimit > 0 && t) {
+    var pct = Math.min(100, Math.round((t.totalTokens / planLimit) * 1000) / 10);
+    var barColor = pct > 80 ? 'var(--red)' : pct > 50 ? 'var(--yellow)' : 'var(--cyan)';
+    html += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:24px">';
+    html += '<div style="display:flex;justify-content:space-between;margin-bottom:8px"><span style="font-size:12px;font-weight:600">Plan Usage</span><span style="font-size:12px;color:' + barColor + ';font-weight:700">' + pct + '%</span></div>';
+    html += '<div style="background:var(--surface2);border-radius:4px;height:10px;overflow:hidden"><div style="background:' + barColor + ';height:100%;width:' + pct + '%;border-radius:4px;transition:width 0.5s"></div></div>';
+    html += '<div style="display:flex;justify-content:space-between;margin-top:6px;font-size:10px;color:var(--text-dim)"><span>' + formatTokens(t.totalTokens) + ' used</span><span>' + formatTokens(planLimit) + ' limit (' + (tokData._planName || 'Custom') + ')</span></div>';
+    html += '</div>';
+  }
+
+  // ===== EFFICIENCY REPORT =====
+  if (t && agents.length) {
+    var wastedCache = 0;
+    var sessionGroups = {};
+    agents.forEach(function(a) {
+      var key = a.session || 'unknown';
+      if (!sessionGroups[key]) sessionGroups[key] = [];
+      sessionGroups[key].push(a);
+    });
+    var multiSessions = 0;
+    Object.keys(sessionGroups).forEach(function(key) {
+      var group = sessionGroups[key];
+      if (group.length > 1) {
+        multiSessions++;
+        for (var i = 1; i < group.length; i++) wastedCache += group[i].cacheCreateTokens;
+      }
+    });
+    var efficiencyPct = t.totalCacheCreate > 0 ? Math.round((1 - wastedCache / t.totalCacheCreate) * 100) : 100;
+    var effColor = efficiencyPct > 70 ? 'var(--green)' : efficiencyPct > 40 ? 'var(--yellow)' : 'var(--red)';
+
+    html += '<div style="background:var(--surface);border:1px solid ' + effColor + ';border-radius:8px;padding:16px;margin-bottom:24px">';
+    html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">';
+    html += '<span style="font-size:13px;font-weight:700;color:' + effColor + '">Cache Efficiency: ' + efficiencyPct + '%</span>';
+    html += '<span style="font-size:11px;color:var(--text-dim)">' + multiSessions + ' sessions with multiple agents</span></div>';
+    html += '<div style="background:var(--surface2);border-radius:4px;height:8px;overflow:hidden;margin-bottom:10px"><div style="background:' + effColor + ';height:100%;width:' + efficiencyPct + '%;border-radius:4px"></div></div>';
+    if (wastedCache > 0) {
+      html += '<div style="font-size:11px;color:var(--text-dim)">~<strong style="color:var(--yellow)">' + formatTokens(wastedCache) + '</strong> tokens wasted re-creating cache. Use <span style="color:var(--cyan)">Continue Session</span> to reuse context.</div>';
+    } else {
+      html += '<div style="font-size:11px;color:var(--green)">No redundant cache re-creation detected.</div>';
+    }
+    html += '</div>';
+  }
+
+  // ===== RECENT AGENTS (with token breakdown) =====
+  html += '<div class="section-title">Recent Agents <span class="count">' + recentAgents.length + '</span></div>';
+  if (recentAgents.length) {
+    html += '<div class="agent-grid">' + recentAgents.map(agentCardHTML).join('') + '</div>';
+  } else {
+    html += emptyHTML('No agents yet', 'Agents will appear when Claude Code spawns subagents.');
+  }
+
+  // ===== PER-AGENT BREAKDOWN (collapsed) =====
+  if (agents.length) {
+    html += '<details style="margin-bottom:24px"><summary style="font-size:13px;font-weight:600;cursor:pointer;color:var(--text);padding:12px 0;display:flex;align-items:center;gap:8px">';
+    html += 'Per-Agent Breakdown <span class="count">' + agents.length + '</span></summary>';
+    html += '<table class="token-table" style="margin-top:8px">';
+    html += '<thead><tr>' +
+      '<th>Agent / Session</th>' +
+      '<th class="tok-num">Input</th><th class="tok-num">Output</th>' +
+      '<th class="tok-num">Cache Read</th><th class="tok-num">Cache Create</th>' +
+      '<th class="tok-num">Total</th><th class="tok-num">Calls</th>' +
+      '<th style="width:140px">Actions</th></tr></thead><tbody>';
+    agents.forEach(function(a) {
+      var sessionId = a.session || '';
+      var sg = sessionGroups ? (sessionGroups[sessionId] || []) : [];
+      var isMulti = sg.length > 1;
+      html += '<tr>' +
+        '<td><div style="font-weight:600;font-size:11px">' + esc(a.agentId) + '</div>' +
+          '<div class="tok-snippet">' + esc(a.promptSnippet) + '</div>' +
+          (isMulti ? '<div style="font-size:9px;color:var(--yellow);margin-top:2px">session: ' + sessionId.substring(0,8) + '... (' + sg.length + ' agents)</div>' : '') +
+        '</td>' +
+        '<td class="tok-num tok-green">' + a.inputTokens.toLocaleString() + '</td>' +
+        '<td class="tok-num tok-purple">' + a.outputTokens.toLocaleString() + '</td>' +
+        '<td class="tok-num">' + a.cacheReadTokens.toLocaleString() + '</td>' +
+        '<td class="tok-num" style="color:var(--yellow)">' + a.cacheCreateTokens.toLocaleString() + '</td>' +
+        '<td class="tok-num tok-total">' + a.totalTokens.toLocaleString() + '</td>' +
+        '<td class="tok-num">' + a.apiCalls + '</td>' +
+        '<td style="white-space:nowrap">' +
+          '<button class="token-refresh-btn" style="font-size:9px;padding:2px 6px" onclick="rerunAgent(\'' + esc(a.agentId) + '\')">Re-run</button> ' +
+          (sessionId ? '<button class="token-refresh-btn" style="font-size:9px;padding:2px 6px;border-color:rgba(16,185,129,0.4);color:var(--green)" onclick="continueSession(\'' + esc(sessionId) + '\',\'' + esc(a.agentId) + '\')">Continue</button>' : '') +
+        '</td></tr>';
+    });
+    html += '</tbody></table></details>';
+  }
+
+  // ===== PLAN CONFIG (collapsed) =====
+  if (tokData) {
+    html += '<details style="margin-bottom:24px"><summary style="font-size:12px;font-weight:600;cursor:pointer;color:var(--text-dim);margin-bottom:8px">Plan Configuration</summary>';
+    html += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px">';
+    html += '<div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">';
+    html += '<div><label style="font-size:10px;color:var(--text-dim);display:block;margin-bottom:4px">PLAN NAME</label>';
+    html += '<select id="planName" style="background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:inherit;font-size:11px;padding:6px 10px;border-radius:4px">';
+    ['Max $100','Max $200','Pro','Team','Enterprise','API'].forEach(function(p) {
+      html += '<option value="' + p + '"' + (tokData._planName === p ? ' selected' : '') + '>' + p + '</option>';
+    });
+    html += '</select></div>';
+    html += '<div><label style="font-size:10px;color:var(--text-dim);display:block;margin-bottom:4px">TOKEN LIMIT</label>';
+    html += '<input id="planLimit" type="number" value="' + (tokData._planLimit || 0) + '" style="background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:inherit;font-size:11px;padding:6px 10px;border-radius:4px;width:140px"></div>';
+    html += '<div><label style="font-size:10px;color:var(--text-dim);display:block;margin-bottom:4px">BILLING START</label>';
+    html += '<input id="planStart" type="date" value="' + (tokData._planStart || '') + '" style="background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:inherit;font-size:11px;padding:6px 10px;border-radius:4px"></div>';
+    html += '<button onclick="savePlanConfig()" class="token-refresh-btn" style="margin-bottom:0">Save</button>';
+    html += '</div></div></details>';
+  }
+
+  c.innerHTML = html;
+
+  // Render charts
+  if (t && agents.length) {
+    setTimeout(function() { renderTokenCharts(t, agents); }, 50);
+  }
 }
 
 function destroyCharts() {
@@ -1328,70 +1435,6 @@ function makeChart(id, config) {
   var chart = new Chart(el, config);
   activeCharts[id] = chart;
   return chart;
-}
-
-function renderDashboardCharts(tu) {
-  if (typeof Chart === 'undefined') return;
-  destroyCharts();
-  Chart.defaults.color = '#94a3b8';
-  Chart.defaults.font.family = "'JetBrains Mono', monospace";
-  Chart.defaults.font.size = 10;
-
-  // Agent status doughnut
-  var statusEl = document.getElementById('chart-agent-status');
-  if (statusEl) {
-    makeChart('chart-agent-status', {
-      type: 'doughnut',
-      data: {
-        labels: ['Running', 'Completed', 'Failed'],
-        datasets: [{
-          data: [state.activeCount || 0, state.completedCount || 0, state.failedCount || 0],
-          backgroundColor: ['#f59e0b', '#10b981', '#ef4444'],
-          borderColor: '#111827',
-          borderWidth: 2,
-          hoverOffset: 6,
-        }]
-      },
-      options: {
-        cutout: '65%',
-        responsive: true,
-        plugins: {
-          legend: { position: 'bottom', labels: { padding: 14, usePointStyle: true, pointStyle: 'circle' } },
-        }
-      }
-    });
-  }
-
-  // Token breakdown doughnut
-  var tokenEl = document.getElementById('chart-token-donut');
-  if (tokenEl && tu) {
-    makeChart('chart-token-donut', {
-      type: 'doughnut',
-      data: {
-        labels: ['Input', 'Output', 'Cache Read', 'Cache Create'],
-        datasets: [{
-          data: [
-            tu.totalInputTokens || 0,
-            tu.totalOutputTokens || 0,
-            tu.totalTokens - (tu.totalInputTokens || 0) - (tu.totalOutputTokens || 0) > 0
-              ? tu.totalTokens - (tu.totalInputTokens || 0) - (tu.totalOutputTokens || 0) : 0,
-            0
-          ],
-          backgroundColor: ['#10b981', '#8b5cf6', '#334155', '#f59e0b'],
-          borderColor: '#111827',
-          borderWidth: 2,
-          hoverOffset: 6,
-        }]
-      },
-      options: {
-        cutout: '65%',
-        responsive: true,
-        plugins: {
-          legend: { position: 'bottom', labels: { padding: 14, usePointStyle: true, pointStyle: 'circle' } },
-        }
-      }
-    });
-  }
 }
 
 function renderCustomAgents(c) {
@@ -1738,14 +1781,7 @@ function renderSettingsContent(c) {
     '<div class="json-viewer"><pre>' + syntaxHighlight(JSON.stringify(cache.settings, null, 2)) + '</pre></div>';
 }
 
-function renderTokens(c) {
-  if (!cache.tokenUsage) {
-    c.innerHTML = loadingHTML();
-    fetchTokenData(false, c);
-    return;
-  }
-  renderTokensContent(c);
-}
+// renderTokens removed — merged into renderDashboard
 
 function fetchTokenData(forceRefresh, c) {
   var url = forceRefresh ? '/api/token-usage?refresh=1' : '/api/token-usage';
@@ -1757,7 +1793,9 @@ function fetchTokenData(forceRefresh, c) {
     cache.tokenUsage._planName = results[1].name || '';
     cache.tokenUsage._planLimit = results[1].monthlyTokenLimit || 0;
     cache.tokenUsage._planStart = results[1].billingCycleStart || '';
-    if (currentPage === 'tokens') renderTokensContent(c || document.getElementById('content'));
+    if (currentPage === 'dashboard') {
+      renderDashboardContent(c || document.getElementById('content'), cache.tokenUsage);
+    }
   }).catch(function(e) {
     if (c) c.innerHTML = emptyHTML('Failed to load token usage', e.message);
   });
@@ -1938,9 +1976,7 @@ function executeRerun() {
 
 function refreshTokenUsage() {
   cache.tokenUsage = null;
-  var c = document.getElementById('content');
-  c.innerHTML = loadingHTML();
-  fetchTokenData(true, c);
+  renderDashboard(document.getElementById('content'));
 }
 
 function savePlanConfig() {
@@ -1968,7 +2004,8 @@ function savePlanConfig() {
   .catch(function(e) { alert('Error: ' + e.message); });
 }
 
-function renderTokensContent(c) {
+// renderTokensContent removed — merged into renderDashboardContent
+function _unused_renderTokensContent(c) {
   var data = cache.tokenUsage;
   var t = data.total;
   var agents = data.agents;
