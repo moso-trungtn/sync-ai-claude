@@ -130,20 +130,39 @@ emit_agent_step "fix-parser" "Processing <LENDER_NAME> (<JIRA_KEY>)"
 
 #### Step 4b: Transition Jira to "In Progress"
 
-First get available transitions:
+The Jira workflow requires TWO transitions to reach "In Progress":
+1. **Backlog → New**: transition name "Select for development" (id varies)
+2. **New → In Progress**: transition name "Start Progress" (id varies)
+
+For each transition, get available transitions first, then apply:
+
 ```
+# First: Backlog → New
 Tool: getTransitionsForJiraIssue
   cloudId: CLOUD_ID
   issueIdOrKey: <JIRA_KEY>
-```
 
-Find the transition with name containing "Progress" (case-insensitive). Then transition:
-```
+Find transition with name "Select for development" or containing "development". Apply it.
+
 Tool: transitionJiraIssue
   cloudId: CLOUD_ID
   issueIdOrKey: <JIRA_KEY>
-  transition: { id: "<TRANSITION_ID>" }
+  transition: { id: "<SELECT_FOR_DEV_ID>" }
+
+# Second: New → In Progress
+Tool: getTransitionsForJiraIssue
+  cloudId: CLOUD_ID
+  issueIdOrKey: <JIRA_KEY>
+
+Find transition with name "Start Progress" or containing "Progress". Apply it.
+
+Tool: transitionJiraIssue
+  cloudId: CLOUD_ID
+  issueIdOrKey: <JIRA_KEY>
+  transition: { id: "<START_PROGRESS_ID>" }
 ```
+
+**IMPORTANT:** After the pipeline completes, leave tasks at "In Progress" status. Do NOT transition to "Done" — the user will review and close tasks themselves.
 
 #### Step 4c: Download New Ratesheet
 
@@ -171,31 +190,60 @@ source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
 emit_agent_step "fix-parser" "Downloaded ratesheet for <LENDER_NAME>"
 ```
 
-#### Step 4d: Run Tests (First Pass)
+#### Step 4c2: Update inputStream in Test Files to New Ratesheet
+
+**CRITICAL STEP — do NOT skip.** After downloading the new ratesheet, `download-ratesheet.sh` adds a new constant to `RatesheetFiles.java` (e.g., `DARTBANK_20260327`) but does **NOT** update the test files. The tests still reference the OLD constant.
+
+You MUST update the `inputStream` / `mergedInputStream` reference in BOTH test files:
+
+1. **AdjustmentParsersTest.java** — find the test method for this lender, find `RatesheetFiles.<OLD_CONSTANT>`, replace with `RatesheetFiles.<NEW_CONSTANT>`
+2. **RateParserTest.java** — same: find the test method, replace the old `RatesheetFiles` constant with the new one
+
+```bash
+# Step 1: Find what constant the tests currently use
+cd /Users/trungthach/IdeaProjects/packs/loan
+grep -n "RatesheetFiles.*<LENDER>" src/test/java/com/mvu/loan/AdjustmentParsersTest.java
+grep -n "RatesheetFiles.*<LENDER>" src/test/java/com/mvu/loan/RateParserTest.java
+
+# Step 2: Find what NEW constant was added by download-ratesheet.sh
+grep "<LENDER_UPPER>_2026" src/test/java/com/mvu/loan/RatesheetFiles.java | tail -1
+```
+
+Use the Edit tool to replace the old constant with the new one in BOTH files. Example:
+```
+Old: final InputStream inputStream = RateParserTest.class.getResourceAsStream(RatesheetFiles.DARTBANK_20260312);
+New: final InputStream inputStream = RateParserTest.class.getResourceAsStream(RatesheetFiles.DARTBANK_20260327);
+```
+
+**WHY:** If you skip this step, the tests will run against the OLD ratesheet and either pass incorrectly (masking real failures) or be meaningless.
+
+#### Step 4d: Run Tests (First Pass — WITHOUT --ratesheet flag)
+
+Now that the test files reference the new ratesheet constant, run tests WITHOUT the `--ratesheet` flag. The tests should read from the embedded constant:
 
 ```bash
 cd /Users/trungthach/IdeaProjects/packs/loan
-./parser-fix.sh <LENDER_NAME> --both --ratesheet <DOWNLOADED_PATH> 2>&1 | tail -5
+./parser-fix.sh <LENDER_NAME> --both 2>&1 | tail -5
 cat /tmp/parser-fix/<lender_lowercase>/report.txt
 ```
 
-Note the test results. This first pass will likely show expectation mismatches (`.txt` files need updating).
+Note the test results. This first pass will likely show expectation mismatches (`.txt` files need updating) or parser errors if the ratesheet format changed.
 
 #### Step 4e: Accept Expectations
 
 Accept adjustment expectations:
 ```bash
 cd /Users/trungthach/IdeaProjects/packs/loan
-mvn test -Dtest=AdjustmentParsersTest#test<LenderName> -Dratesheet.path=<DOWNLOADED_PATH> -Daccept -Daccept.new.adj 2>&1 | tail -20
+mvn test -Dtest=AdjustmentParsersTest#test<LenderName> -Daccept -Daccept.new.adj 2>&1 | tail -20
 ```
 
 This regenerates the `.txt` expectation files to match the new ratesheet.
 
-#### Step 4f: Re-run Tests (Verify Pass)
+#### Step 4f: Re-run Tests (Verify Pass — WITHOUT --ratesheet flag)
 
 ```bash
 cd /Users/trungthach/IdeaProjects/packs/loan
-./parser-fix.sh <LENDER_NAME> --both --ratesheet <DOWNLOADED_PATH> 2>&1 | tail -5
+./parser-fix.sh <LENDER_NAME> --both 2>&1 | tail -5
 cat /tmp/parser-fix/<lender_lowercase>/report.txt
 ```
 
@@ -330,22 +378,9 @@ source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
 emit_agent_step "fix-parser" "Committed <JIRA_KEY>"
 ```
 
-#### Step 4k: Transition Jira to "Done"
+#### Step 4k: Mark Task as Fixed (leave at "In Progress")
 
-Get available transitions:
-```
-Tool: getTransitionsForJiraIssue
-  cloudId: CLOUD_ID
-  issueIdOrKey: <JIRA_KEY>
-```
-
-Find the transition with name containing "Done" (case-insensitive). Then transition:
-```
-Tool: transitionJiraIssue
-  cloudId: CLOUD_ID
-  issueIdOrKey: <JIRA_KEY>
-  transition: { id: "<TRANSITION_ID>" }
-```
+**Do NOT transition to "Done".** Leave the task at "In Progress" so the user can review and close it themselves.
 
 Add to fixed list:
 ```
@@ -355,7 +390,7 @@ fixed_tasks.append({ key: <JIRA_KEY>, lender: <LENDER> })
 Emit:
 ```bash
 source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
-emit_agent_step "fix-parser" "Completed <JIRA_KEY>"
+emit_agent_step "fix-parser" "Fixed <JIRA_KEY> — left at In Progress for review"
 ```
 
 **→ Continue to next task**
