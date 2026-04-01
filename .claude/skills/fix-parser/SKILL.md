@@ -1,15 +1,15 @@
 ---
 name: fix-parser
-description: Automated pipeline that pulls parser-failed Jira tasks, downloads new ratesheets, fixes tests, reviews code, commits, and updates Jira status. Usage: /fix-parser [@assigneeId]
+description: Smart automated pipeline that fixes parser-failed lenders from Jira. Learns from past fixes, classifies errors into tiers (auto-fix vs agent-fix), and gets smarter over time. Usage: /fix-parser [@assigneeId]
 argument-hint: "[@assigneeId] (optional, defaults to Trung Thach)"
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Agent, mcp__claude_ai_Atlassian__searchJiraIssuesUsingJql, mcp__claude_ai_Atlassian__getJiraIssue, mcp__claude_ai_Atlassian__editJiraIssue, mcp__claude_ai_Atlassian__getTransitionsForJiraIssue, mcp__claude_ai_Atlassian__transitionJiraIssue
 ---
 
-# Fix Parser Pipeline
+# Fix Parser Pipeline — Smart Agent
 
-You are the **orchestrator** for an automated pipeline that fixes parser-failed lenders from Jira.
+You are a **smart orchestrator** that fixes parser-failed lenders. You learn from every fix, classify errors by complexity, and take the cheapest path that works.
 
-Pipeline flow: **Query Jira → Download → Test → Fix → Test → Commit**
+Pipeline flow: **Memory + Cookbook → Jira → Download → Classify → (Tier 0 auto-fix | Tier 1 guided | Tier 2 full agent) → Verify → Learn → Commit**
 
 ---
 
@@ -22,83 +22,175 @@ PROJECT_ROOT = "/Users/trungthach/IdeaProjects"
 MOSO_PRICING = "/Users/trungthach/IdeaProjects/moso-pricing"
 PACKS_LOAN = "/Users/trungthach/IdeaProjects/packs/loan"
 MOSO_MEMORY_DIR = "/Users/trungthach/.claude/projects/-Users-trungthach-IdeaProjects/memory"
+COOKBOOK_FILE = "/Users/trungthach/.claude/projects/-Users-trungthach-IdeaProjects/memory/parser_fix_cookbook.md"
 ```
 
 ---
 
 ## DASHBOARD INTEGRATION
 
-Source the emit helper at the start and emit status events throughout:
-
 ```bash
 source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
-emit_reset
-emit_pipeline_start "fix-parser"
 ```
+
+| When | Command |
+|------|---------|
+| Skill starts | `emit_reset && emit_pipeline_start "fix-parser"` |
+| Memory/cookbook loaded | `emit_agent_step "fix-parser" "Memory loaded, cookbook: N lenders"` |
+| Per lender start | `emit_meta "<KEY>" "<LENDER>" "fix-parser"` |
+| Tier classified | `emit_agent_step "fix-parser" "<LENDER>: Tier N — <reason>"` |
+| Tier 0 auto-fix | `emit_agent_step "fix-parser" "<LENDER>: auto-fix (no agent needed)"` |
+| Tier 1/2 agent spawn | `emit_agent_start "parser-dev" "Fixing <LENDER>"` |
+| Test result | `emit_agent_test "fix-parser" "<test>" "<PASS/FAIL>" "<details>"` |
+| Verify pass | `emit_agent_test "fix-parser" "Verify <LENDER>" "PASS" "Both pass"` |
+| Cookbook updated | `emit_agent_step "fix-parser" "Cookbook updated: <LENDER>"` |
+| Commit | `emit_agent_step "fix-parser" "Committed <KEY>"` |
+| Retry | `emit_pipeline_retry N` |
+| Done | `emit_pipeline_done` |
 
 ---
 
-## STEP 0 — Environment Check & Memory Load
+## STEP 0 — Environment Check, Memory & Cookbook Load
 
 ### 0.1 Environment Verification
 
 ```bash
+source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh && emit_reset
+emit_pipeline_start "fix-parser"
 echo "JIRA_EMAIL=${JIRA_EMAIL:-MISSING} | JIRA_TOKEN=${JIRA_API_TOKEN:-MISSING}"
 ```
 
-**If any value is `MISSING` → stop immediately:**
-```
-/fix-parser: Environment not configured.
-Set JIRA_EMAIL and JIRA_API_TOKEN in ~/.claude/settings.json env vars.
-```
+**If any value is `MISSING` → stop immediately.**
 
 ### 0.2 Parse Arguments
 
 If `$ARGUMENTS` contains an `@`-prefixed string, extract it as the assignee ID.
 Otherwise use `DEFAULT_ASSIGNEE`.
 
-```
-Examples:
-  /fix-parser                          → assignee = DEFAULT_ASSIGNEE
-  /fix-parser @712020:abc123           → assignee = "712020:abc123"
-```
-
 ### 0.3 Memory Load
 
 **Output:**
 ```
-[fix-parser 0/5] Loading project memories...
+[fix-parser 0/5] Loading memories and cookbook...
 ```
 
-Read memory files in parallel:
+Read in parallel:
 ```
 $MOSO_MEMORY_DIR/project_structure.md
 $MOSO_MEMORY_DIR/infrastructure_index.md
+$COOKBOOK_FILE
 ```
 
-**If either file is missing** → fall back to `lender-info.sh` for lookups (legacy mode). Log:
-```
-[fix-parser 0/5] ⚠ Memories not found — using legacy lookup mode
-```
+**If memory files missing** → legacy mode (lender-info.sh fallback).
+**If cookbook missing** → create empty cookbook (first run).
 
-**If both files exist** → memory is your architectural map. Log:
-```
-[fix-parser 0/5] ✓ Memories loaded — memory-first mode active
+```bash
+source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
+emit_agent_step "fix-parser" "Memory loaded, cookbook: <N> lenders tracked"
 ```
 
 ### Memory-First Rule (enforced from here on)
 
-When memory is loaded, you MUST follow this lookup order for every class/file:
+```
+1. infrastructure_index.md  ← check here first
+2. project_structure.md     ← module/package layout
+3. cookbook (lender section)  ← past fix history, cached paths
+4. targeted find -name      ← only if NOT in memory
+5. lender-info.sh           ← last resort
+```
+
+**NEVER run broad `find` or `grep -r` across the workspace.**
+
+---
+
+## COOKBOOK FORMAT
+
+The cookbook is a markdown file that grows after every fix. It stores per-lender intelligence:
+
+```markdown
+# Parser Fix Cookbook
+
+## PennyMac
+- **paths**: Tables=`<path>`, Rate=`<path>`, Adj=`<path>`
+- **tier_history**: [0, 0, 0, 1, 0, 0, 0, 0, 0, 0] (last 10)
+- **tier_0_streak**: 6
+- **last_fix**: 2026-03-31
+- **last_error**: expectation mismatch
+- **last_tier1_fix**: CRAWL_MISMATCH on field_8 → updated section keyword "FICO Score" → "Credit Score" (2026-03-15)
+- **notes**: NonQM lender, usually just expectation updates
+
+## LoganFinance
+- **paths**: Tables=`<path>`, Rate=`<path>`, Adj=`<path>`
+- **tier_history**: [0, 1, 0, 0, 0]
+- **tier_0_streak**: 3
+- **last_fix**: 2026-03-28
+- **last_error**: expectation mismatch
+- **last_tier1_fix**: VALUE_MISMATCH on FICO table → row ranges changed from 640-659 to 620-639 (2026-03-10)
+- **notes**: —
+```
+
+---
+
+## ERROR TIER CLASSIFICATION
+
+**This is the core intelligence.** Classify every error BEFORE deciding what to do:
+
+### Tier 0 — Auto-Fix (orchestrator handles, NO agent)
+Token cost: **minimal** (~5% of full pipeline)
+
+Errors that resolve by accepting expectations:
+- `BUILD SUCCESS` with expectation file diffs only
+- Rate count changed (just update test assertion number)
+- New expectations needed (`-Daccept.new.adj`)
+- **Cookbook signal**: lender has `tier_0_streak >= 3`
+
+**Action**: Accept expectations → verify → commit. No file reading, no agent.
+
+### Tier 1 — Guided Fix (targeted dev agent with 1-2 beads)
+Token cost: **moderate** (~30% of full pipeline)
+
+Errors with known fix patterns:
+- `CRAWL_MISMATCH` → section keyword changed in ratesheet (fix: update AdjParser keyword)
+- `VALUE_MISMATCH` → table ranges changed (fix: update Tables row/col ranges)
+- `Sheet not found` → sheet tab renamed (fix: update RateParser sheet constant)
+- `Rate count mismatch` → products added/removed (fix: update RateParser processPage)
+- `Missing mode` → new mode needed (fix: update Tables getModeResolver)
+- **Cookbook signal**: cookbook has a previous Tier 1 fix for same error type on this lender
+
+**Action**: Read ONLY the specific file → create 1-2 targeted beads → spawn parser-dev with exact instructions.
+
+### Tier 2 — Complex Fix (full agent with all parser files)
+Token cost: **high** (~100% of full pipeline)
+
+Errors requiring deep investigation:
+- `NullPointerException` or `ClassCastException`
+- Multiple unrelated failures
+- Parser structural change needed
+- New table type not seen before
+- **Cookbook signal**: lender has no history, or previous Tier 1 fix didn't match this error
+
+**Action**: Read all parser files → full beads decomposition → spawn parser-dev with complete context.
+
+### Classification Algorithm
 
 ```
-1. infrastructure_index.md  ← check here first, every time
-2. project_structure.md     ← module/package layout if index has no match
-3. targeted find -name      ← only if NOT found in memory (single module)
-4. lender-info.sh           ← last resort fallback
-```
+function classifyError(report, cookbook_entry):
+    if report contains only "expectation" diffs or "BUILD SUCCESS":
+        return TIER_0
 
-**NEVER skip to step 3 or 4 without exhausting steps 1 and 2 first.**
-**NEVER run broad `find` or `grep -r` across the whole workspace.**
+    if cookbook_entry exists AND cookbook_entry.tier_0_streak >= 3:
+        # Optimistic: try Tier 0 first (accept + verify)
+        return TIER_0_OPTIMISTIC
+
+    error_type = extractErrorType(report)
+
+    if error_type in [CRAWL_MISMATCH, VALUE_MISMATCH, SHEET_NOT_FOUND, RATE_COUNT, MISSING_MODE]:
+        if cookbook_entry has previous fix for same error_type:
+            return TIER_1_WITH_HINT  # include past fix as hint
+        return TIER_1
+
+    return TIER_2
+```
 
 ---
 
@@ -106,211 +198,119 @@ When memory is loaded, you MUST follow this lookup order for every class/file:
 
 **Output:**
 ```
-[fix-parser 1/5] Querying Jira for parser-failed tasks...
+[fix-parser 1/5] Querying Jira...
 ```
 
-Use the Jira MCP tool to search:
-
+JQL:
 ```
-JQL: project = MOSO AND assignee = "<ASSIGNEE_ID>" AND status = "Backlog" AND summary ~ "[Parser failed]" ORDER BY created DESC
-Fields: summary, status, issuetype, priority, assignee
-Cloud ID: CLOUD_ID
+project = MOSO AND assignee = "<ASSIGNEE_ID>" AND status = "Backlog" AND summary ~ "[Parser failed]" ORDER BY created DESC
 ```
 
-If no results found, also try with `status = "To Do"` as a fallback.
-
-If still no results, tell the user:
-> No parser-failed tasks found for this assignee. Nothing to fix.
+Fallback: try `status = "To Do"`.
 
 ---
 
-## STEP 2 — Show Task List and Get Confirmation
+## STEP 2 — Show Task List with Cookbook Predictions
 
-Present the tasks in a table:
+Present the tasks with cookbook intelligence:
 
 ```
 ## Parser-Failed Tasks Found: N
 
-| # | Key | Lender | Date | Priority |
-|---|-----|--------|------|----------|
-| 1 | MOSO-15944 | Broker First Funding NON QM | 03/24/2026 | Medium |
-| 2 | MOSO-15943 | Logan Finance Non QM | 03/24/2026 | Medium |
-...
+| # | Key | Lender | Date | Predicted Tier | Streak |
+|---|-----|--------|------|----------------|--------|
+| 1 | MOSO-15944 | BrokerFirstFunding (NonQM) | 03/31 | Tier 0 (streak: 8) | ████████ |
+| 2 | MOSO-15943 | LoganFinance (NonQM) | 03/31 | Tier 0 (streak: 3) | ███ |
+| 3 | MOSO-15942 | NewLender | 03/31 | Unknown (no history) | — |
 
-Fix all tasks? Or specify which ones (e.g., "1,3,5" or "all")
+Estimated: 2 auto-fix, 1 needs investigation
+Fix all? Or specify (e.g., "1,3,5" or "all")
 ```
 
-Wait for user response. Parse their selection.
+Wait for user response.
 
 ---
 
 ## STEP 3 — Build moso-pricing JAR (once)
-
-**Output:**
-```
-[fix-parser 2/5] Building moso-pricing JAR...
-```
 
 ```bash
 cd /Users/trungthach/IdeaProjects/moso-pricing
 mvn install -DskipTests -Pjar-packaging -Dgwt.compiler.skip=true 2>&1 | tail -20
 ```
 
-Verify `BUILD SUCCESS` in output. If build fails, stop and report the error.
-
-Emit:
-```bash
-source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
-emit_agent_step "fix-parser" "Built moso-pricing JAR"
-```
-
 ---
 
-## STEP 4 — Process Each Task
+## STEP 4 — Process Each Task (Smart Tier Routing)
 
-Initialize tracking:
+Initialize:
 ```
 fixed_tasks = []
 skipped_tasks = []
-lender_context = {}  # cache resolved paths per lender — no re-reads
+lender_context = {}
 ```
 
-**FOR EACH selected task, execute steps 4a through 4m:**
+**FOR EACH selected task:**
 
-### Step 4a: Parse Lender Name & Resolve Paths (Memory-First)
+### Step 4a: Parse Lender & Load Cookbook Entry
 
-Title pattern: `[Parser failed] {Lender Name} [NonQM/non-QM/NON QM]: {MM/DD/YYYY}`
+Extract from title: lender name, isNonQM, fail date.
 
-Extract:
-- **Raw lender name**: text between `]` and `:` (strip NonQM/non-QM/NON QM suffix)
-- **Is NonQM**: true if title contains "NonQM", "non-QM", "NON QM", or "Non QM" (case-insensitive)
-- **Fail date**: the date at the end
-
-**Resolve parser file paths (memory-first):**
-
-1. **Check `infrastructure_index.md`** for the lender name → get Tables, RateParser, AdjustmentParser paths directly
-2. **If not in index**, check `project_structure.md` for the lender's package location
-3. **If not in memory**, fall back to:
-   ```bash
-   cd /Users/trungthach/IdeaProjects/packs/loan
-   ./lender-info.sh <RawLenderName> 2>/dev/null | head -10
-   ```
-
-**Cache the resolved paths** in `lender_context` so you never search again:
+**Check cookbook FIRST:**
 ```
-lender_context[<LENDER>] = {
-  camelName: "PennyMac",
-  tablesPath: "<path>/PennyMacTables.java",
-  rateParserPath: "<path>/PennyMacRateParser.java",
-  adjParserPath: "<path>/PennyMacAdjustmentParser.java",
-  isNonQM: true/false
-}
+cookbook_entry = cookbook[<LENDER>] or null
 ```
 
-Emit:
+**If cookbook_entry exists** → use cached paths directly (skip all lookups):
+```
+lender_context[<LENDER>] = cookbook_entry.paths
+```
+
+**If no cookbook entry** → memory-first resolution:
+1. `infrastructure_index.md`
+2. `project_structure.md`
+3. `lender-info.sh` (last resort)
+
+Cache in `lender_context`.
+
 ```bash
 source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
 emit_meta "<JIRA_KEY>" "<LENDER_NAME>" "fix-parser"
-emit_agent_step "fix-parser" "Processing <LENDER_NAME> (<JIRA_KEY>)"
 ```
 
 ### Step 4b: Transition Jira to "In Progress"
 
-The Jira workflow requires TWO transitions to reach "In Progress":
-1. **Backlog → New**: transition name "Select for development" (id varies)
-2. **New → In Progress**: transition name "Start Progress" (id varies)
+Two transitions: Backlog → New ("Select for development") → In Progress ("Start Progress").
 
-For each transition, get available transitions first, then apply:
-
-```
-# First: Backlog → New
-Tool: getTransitionsForJiraIssue
-  cloudId: CLOUD_ID
-  issueIdOrKey: <JIRA_KEY>
-
-Find transition with name "Select for development" or containing "development". Apply it.
-
-Tool: transitionJiraIssue
-  cloudId: CLOUD_ID
-  issueIdOrKey: <JIRA_KEY>
-  transition: { id: "<SELECT_FOR_DEV_ID>" }
-
-# Second: New → In Progress
-Tool: getTransitionsForJiraIssue
-  cloudId: CLOUD_ID
-  issueIdOrKey: <JIRA_KEY>
-
-Find transition with name "Start Progress" or containing "Progress". Apply it.
-
-Tool: transitionJiraIssue
-  cloudId: CLOUD_ID
-  issueIdOrKey: <JIRA_KEY>
-  transition: { id: "<START_PROGRESS_ID>" }
-```
-
-**IMPORTANT:** After the pipeline completes, leave tasks at "In Progress" status. Do NOT transition to "Done" — the user will review and close tasks themselves.
+Get transitions first, then apply. Leave at "In Progress" — do NOT transition to "Done".
 
 ### Step 4c: Download New Ratesheet
 
 ```bash
 cd /Users/trungthach/IdeaProjects/packs/loan
-./download-ratesheet.sh <LENDER_NAME> 2>&1
+./download-ratesheet.sh <LENDER_NAME> [--nonqm] 2>&1
 ```
 
-If the lender is NonQM, add `--nonqm`:
-```bash
-./download-ratesheet.sh <LENDER_NAME> --nonqm 2>&1
-```
+Capture downloaded file path. If download fails → skip lender, continue.
 
-**Capture the downloaded file path** from the output. The script prints the path of the downloaded file. Look for lines containing the ratesheet path (usually ends with `.xlsx`, `.xlsm`, `.pdf`, `.csv`).
+### Step 4d: Update inputStream in Test Files
 
-If download fails (no file found in GCS), skip this lender:
-```
-skipped_tasks.append({ key: <JIRA_KEY>, lender: <LENDER>, reason: "Download failed — no ratesheet in GCS" })
-```
-Continue to next task.
-
-Emit:
-```bash
-source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
-emit_agent_step "fix-parser" "Downloaded ratesheet for <LENDER_NAME>"
-```
-
-### Step 4d: Update inputStream in Test Files to New Ratesheet
-
-**CRITICAL STEP — do NOT skip.** After downloading the new ratesheet, `download-ratesheet.sh` adds a new constant to `RatesheetFiles.java` (e.g., `DARTBANK_20260327`) but does **NOT** update the test files. The tests still reference the OLD constant.
-
-You MUST update the `inputStream` / `mergedInputStream` reference in BOTH test files:
-
-1. **AdjustmentParsersTest.java** — find the test method for this lender, find `RatesheetFiles.<OLD_CONSTANT>`, replace with `RatesheetFiles.<NEW_CONSTANT>`
-2. **RateParserTest.java** — same: find the test method, replace the old `RatesheetFiles` constant with the new one
+**CRITICAL — do NOT skip.** Replace old `RatesheetFiles.<OLD>` constant with new `RatesheetFiles.<NEW>` in both AdjustmentParsersTest.java and RateParserTest.java.
 
 ```bash
-# Step 1: Find what constant the tests currently use
 cd /Users/trungthach/IdeaProjects/packs/loan
 grep -n "RatesheetFiles.*<LENDER>" src/test/java/com/mvu/loan/AdjustmentParsersTest.java
 grep -n "RatesheetFiles.*<LENDER>" src/test/java/com/mvu/loan/RateParserTest.java
-
-# Step 2: Find what NEW constant was added by download-ratesheet.sh
 grep "<LENDER_UPPER>_2026" src/test/java/com/mvu/loan/RatesheetFiles.java | tail -1
 ```
 
-Use the Edit tool to replace the old constant with the new one in BOTH files. Example:
-```
-Old: final InputStream inputStream = RateParserTest.class.getResourceAsStream(RatesheetFiles.DARTBANK_20260312);
-New: final InputStream inputStream = RateParserTest.class.getResourceAsStream(RatesheetFiles.DARTBANK_20260327);
-```
+Edit both files with the new constant.
 
-**WHY:** If you skip this step, the tests will run against the OLD ratesheet and either pass incorrectly (masking real failures) or be meaningless.
-
-### Step 4e: Run Tests — First Pass (Detect Failures)
+### Step 4e: First Test Pass + Classify
 
 **Output:**
 ```
-[fix-parser 3/5] Testing <LENDER_NAME> (first pass)...
+[fix-parser 3/5] Testing <LENDER_NAME>...
 ```
-
-Now that the test files reference the new ratesheet constant, run tests WITHOUT the `--ratesheet` flag:
 
 ```bash
 cd /Users/trungthach/IdeaProjects/packs/loan
@@ -318,297 +318,225 @@ cd /Users/trungthach/IdeaProjects/packs/loan
 cat /tmp/parser-fix/<lender_lowercase>/report.txt
 ```
 
-Note the test results. This first pass will likely show expectation mismatches (`.txt` files need updating) or parser errors if the ratesheet format changed.
+**NOW CLASSIFY THE ERROR using the tier system:**
 
-### Step 4f: Accept Expectations
-
-Accept adjustment expectations:
 ```bash
+source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
+emit_agent_step "fix-parser" "<LENDER>: Tier <N> — <reason>"
+```
+
+### Step 4f: Execute Based on Tier
+
+---
+
+#### TIER 0 — Auto-Fix (no agent, no file reading)
+
+**Output:**
+```
+[fix-parser 3/5] <LENDER>: Tier 0 auto-fix (expectations only)
+```
+
+```bash
+# Accept expectations
 cd /Users/trungthach/IdeaProjects/packs/loan
 mvn test -Dtest=AdjustmentParsersTest#test<LenderName> -Daccept -Daccept.new.adj 2>&1 | tail -20
 ```
 
-This regenerates the `.txt` expectation files to match the new ratesheet.
+→ Go directly to **Step 4g (Verify)**.
 
-### Step 4g: Re-run Tests (Verify After Accept)
+**Token saved: ~80% vs spawning an agent.**
 
-```bash
-cd /Users/trungthach/IdeaProjects/packs/loan
-./parser-fix.sh <LENDER_NAME> --both 2>&1 | tail -5
-cat /tmp/parser-fix/<lender_lowercase>/report.txt
-```
+---
 
-Emit:
-```bash
-source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
-emit_agent_test "fix-parser" "AdjParser <LENDER>" "<PASS|FAIL>" "<details>"
-emit_agent_test "fix-parser" "RateParser <LENDER>" "<PASS|FAIL>" "<details>"
-```
+#### TIER 0 OPTIMISTIC — Try auto-fix first (cookbook predicts Tier 0)
 
-### Step 4h: Handle Test Results — Beads Fix Loop
+Same as Tier 0. If verification fails → escalate to Tier 1.
 
-**If BOTH tests PASS → skip to Step 4i (verification test).**
+---
 
-**If tests FAIL (code error, not just expectation mismatch):**
+#### TIER 1 — Guided Fix (targeted agent, 1-2 beads)
 
 **Output:**
 ```
-[fix-parser 3/5] Tests failed — analyzing root cause with beads decomposition...
+[fix-parser 3/5] <LENDER>: Tier 1 — <error_type> (guided fix)
 ```
 
-Enter retry loop (max 3 attempts):
+1. **Read ONLY the target file** (not all parser files):
+   - CRAWL_MISMATCH → read only AdjParser
+   - VALUE_MISMATCH → read only Tables
+   - Sheet not found → read only RateParser
+   - Rate count → read only RateParser + RateParserTest
 
-```
-for attempt in 1..3:
+2. **Check cookbook for past fix hint:**
+   If cookbook has `last_tier1_fix` for same error type → include as hint:
+   ```
+   ## Cookbook Hint (same error occurred before)
+   Last time: <past fix description>
+   This may or may not apply — verify against current ratesheet.
+   ```
 
-    1. READ the error report:
-       cat /tmp/parser-fix/<lender_lowercase>/report.txt
+3. **Create 1-2 targeted beads** and spawn parser-dev:
+   ```
+   subagent_type: "parser-dev"
+   Prompt includes:
+   - ONLY the specific file path(s) needed
+   - Error report
+   - 1-2 beads with exact fix instructions
+   - Cookbook hint if available
+   - "Do NOT search, do NOT read other files"
+   - Rebuild after fix
+   ```
 
-    2. ANALYZE root cause using memory — identify exactly which file(s) need fixing:
-       - Check lender_context for cached paths (Tables, RateParser, AdjParser)
-       - Map error type to the right file:
-         | Error Type               | Target File              |
-         |--------------------------|--------------------------|
-         | CRAWL_MISMATCH           | AdjustmentParser         |
-         | VALUE_MISMATCH           | Tables (wrong ranges)    |
-         | field_N conflict         | Tables (duplicate field)  |
-         | NullPointerException     | Read the stack trace      |
-         | Missing mode             | Tables (getModeResolver)  |
-         | Sheet not found          | RateParser (sheet name)   |
-         | Rate count mismatch      | RateParser (products)     |
+4. **After dev returns** → accept expectations → go to Step 4g (Verify).
 
-    3. DECOMPOSE into ordered beads:
-       Write a quick fix plan (in context, not to file):
+**Token saved: ~50% vs full Tier 2.**
 
-       ## Fix Beads for <LENDER> (attempt <N>)
+---
 
-       ### Bead 1: <target file> — <specific change>
-       - File: <exact path from lender_context>
-       - Root cause: <from error analysis>
-       - Fix: <specific code change needed>
-
-       ### Bead 2: <target file if needed> — <specific change>
-       - File: <exact path>
-       - Fix: <specific code change>
-
-    4. SPAWN parser-dev agent (foreground) with beads:
-       subagent_type: "parser-dev"
-       Prompt: """
-       Fix the parser test failure for <LENDER_NAME>.
-
-       ## Memory-Resolved File Paths (do NOT search — use these directly)
-       - Tables: <tablesPath from lender_context>
-       - RateParser: <rateParserPath from lender_context>
-       - AdjParser: <adjParserPath from lender_context>
-
-       ## Error Report
-       <PASTE REPORT CONTENTS>
-
-       ## Fix Beads (implement in this order)
-
-       ### Bead 1: <file> — <change>
-       <specific fix instructions>
-
-       ### Bead 2: <file> — <change> (if applicable)
-       <specific fix instructions>
-
-       ## Rules
-       - Do NOT search for files — paths are provided above
-       - Do NOT read files not listed above unless absolutely necessary
-       - Implement beads in order
-       - Rebuild after fixes:
-         cd /Users/trungthach/IdeaProjects/moso-pricing && mvn install -DskipTests -Pjar-packaging -Dgwt.compiler.skip=true
-       - Do NOT run tests — just fix and rebuild
-       """
-
-    5. After Dev Agent returns, accept expectations again:
-       cd /Users/trungthach/IdeaProjects/packs/loan
-       mvn test -Dtest=AdjustmentParsersTest#test<LenderName> -Daccept -Daccept.new.adj 2>&1 | tail -20
-
-    6. Re-run tests:
-       ./parser-fix.sh <LENDER_NAME> --both 2>&1 | tail -5
-       cat /tmp/parser-fix/<lender_lowercase>/report.txt
-
-    7. If PASS → break loop, continue to Step 4i
-       If FAIL → continue loop (new beads analysis on next iteration)
-
-    Emit per retry:
-    source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
-    emit_pipeline_retry <attempt>
-```
-
-**If still failing after 3 attempts:**
-```
-skipped_tasks.append({ key: <JIRA_KEY>, lender: <LENDER>, reason: "Code fix failed after 3 attempts. Error: <summary>" })
-```
-
-Write failure report:
-```bash
-mkdir -p /tmp/fix-parser/<lender_lowercase>
-cat > /tmp/fix-parser/<lender_lowercase>/fix_report.md << 'REPORT'
-# Fix Report: <LENDER> (<JIRA_KEY>) — FAILED
-
-## Error Summary
-<root cause analysis from last attempt>
-
-## Beads Attempted
-<list of beads tried across all attempts>
-
-## Files Modified
-<list of files changed>
-
-## Remaining Issue
-<what still fails and why>
-REPORT
-```
-
-Transition Jira back to "Backlog" (find the Backlog transition ID and apply it).
-Continue to next task.
-
-### Step 4i: Verification Test (MUST PASS before commit)
+#### TIER 2 — Complex Fix (full agent)
 
 **Output:**
 ```
-[fix-parser 4/5] Verification test for <LENDER_NAME>...
+[fix-parser 3/5] <LENDER>: Tier 2 — complex fix needed
 ```
 
-Run BOTH tests together to confirm no interference:
+1. **Read all parser files** from lender_context:
+   - Tables, RateParser, AdjParser
+
+2. **Full beads decomposition** (same as current Step 4h):
+   - Analyze error → map to files → create ordered beads
+   - Use error-to-file mapping table
+
+3. **Spawn parser-dev** with full context:
+   ```
+   subagent_type: "parser-dev"
+   Prompt includes:
+   - All parser file paths
+   - Full error report
+   - Ordered beads
+   - Complete implementation rules
+   - Rebuild after fix
+   ```
+
+4. **After dev returns** → accept expectations → go to Step 4g (Verify).
+
+---
+
+### Step 4g: Verification Test (MUST PASS)
+
 ```bash
 cd /Users/trungthach/IdeaProjects/packs/loan
 mvn test -Dtest="AdjustmentParsersTest#test<LenderName>+RateParserTest#test<LenderName>" 2>&1 | tail -20
 ```
 
-**If verification FAILS:**
-- Do NOT commit
-- Go back to Step 4h retry loop (counts as a new attempt)
+**If FAILS:**
+- If was Tier 0 Optimistic → escalate to Tier 1, retry
+- If was Tier 1 → escalate to Tier 2, retry
+- If was Tier 2 → retry with new beads (max 3 total attempts)
+- After 3 total attempts → skip lender, transition Jira back to Backlog
 
-**If verification PASSES:**
-- Continue to Step 4j
-
-Emit:
+**If PASSES:**
 ```bash
 source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
-emit_agent_test "fix-parser" "Verification <LENDER>" "PASS" "Both tests pass together"
+emit_agent_test "fix-parser" "Verify <LENDER>" "PASS" "Both tests pass"
 ```
 
-### Step 4j: Code Review
+### Step 4h: Code Review (Tier 1 and 2 only)
 
-Spawn the `code-reviewer` agent (foreground):
+**Skip for Tier 0** — expectation-only changes don't need review.
 
+For Tier 1/2:
 ```
 subagent_type: "code-reviewer"
-Prompt: "Review the current git diff in /Users/trungthach/IdeaProjects for the <LENDER_NAME> parser fix. Focus on moso-pricing and packs/loan changes."
+Prompt: "Review git diff for <LENDER_NAME> parser fix. Focus on moso-pricing and packs/loan."
 ```
 
-Emit:
+### Step 4i: Update Cookbook (LEARNING STEP)
+
+**This is what makes the agent smarter over time.**
+
+After every successful fix, update the cookbook entry:
+
+```python
+entry = cookbook[<LENDER>] or new_entry()
+
+# Update paths (cache for next time)
+entry.paths = lender_context[<LENDER>]
+
+# Update tier history (keep last 10)
+entry.tier_history.append(actual_tier_used)
+if len(entry.tier_history) > 10:
+    entry.tier_history = entry.tier_history[-10:]
+
+# Update streak
+if actual_tier_used == 0:
+    entry.tier_0_streak += 1
+else:
+    entry.tier_0_streak = 0
+
+# Update metadata
+entry.last_fix = today
+entry.last_error = error_summary
+
+# If Tier 1 fix, record the fix pattern for future hints
+if actual_tier_used == 1:
+    entry.last_tier1_fix = "<error_type> → <what was changed> (<date>)"
+
+# If Tier 0 Optimistic failed and escalated, note it
+if escalated:
+    entry.notes += "Optimistic failed on <date>, was <actual_error>"
+```
+
+Write the updated cookbook to `$COOKBOOK_FILE`:
+
 ```bash
 source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
-emit_agent_step "fix-parser" "Code review for <LENDER_NAME>"
+emit_agent_step "fix-parser" "Cookbook updated: <LENDER> (Tier <N>, streak: <streak>)"
 ```
 
-**If review verdict is NEEDS FIXES:**
-- Log the warnings in the summary (don't block — parser-failed fixes are routine)
-- Show the review report to the user as an info message
-
-**If review verdict is PASS:**
-- Continue silently
-
-### Step 4k: Copy Ratesheet and Update Resources
-
-The `download-ratesheet.sh` script already handles copying to test resources and updating `RatesheetFiles.java`. Verify the ratesheet file exists in resources:
-
-```bash
-ls /Users/trungthach/IdeaProjects/packs/loan/src/test/resources/ratesheets/ | grep -i <lender> | tail -3
+**For failed/skipped lenders**, also update cookbook:
+```python
+entry.last_error = "FAILED: <error_summary>"
+entry.tier_history.append(-1)  # -1 = failed
+entry.notes += "Failed on <date>: <reason>"
 ```
 
-If the ratesheet wasn't auto-copied by the download script, copy manually:
-```bash
-cp <DOWNLOADED_PATH> /Users/trungthach/IdeaProjects/packs/loan/src/test/resources/ratesheets/
-```
-
-### Step 4l: Git Commit
-
-**Output:**
-```
-[fix-parser 5/5] Committing <LENDER_NAME>...
-```
+### Step 4j: Git Commit
 
 ```bash
 cd /Users/trungthach/IdeaProjects
 
-# Stage all changes for this lender
 git add packs/loan/src/test/resources/adj-expectations/
 git add packs/loan/src/test/resources/ratesheets/
 git add packs/loan/src/test/resources/expected-new-adj/
 git add packs/loan/src/test/java/
 git add moso-pricing/
 
-# Check if there's anything to commit
 git diff --cached --stat
 ```
 
-Only commit if there are staged changes:
-
+Commit message includes the tier:
 ```bash
 git commit -m "$(cat <<'EOF'
-MOSO-<XXXX>: fix <LenderName> parser
+MOSO-<XXXX>: fix <LenderName> parser (Tier <N>)
 
 Updated expectations for new ratesheet dated <DATE>.
+<If Tier 1/2: brief description of code fix>
 
 Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
 EOF
 )"
 ```
 
-Write success report:
-```bash
-mkdir -p /tmp/fix-parser/<lender_lowercase>
-cat > /tmp/fix-parser/<lender_lowercase>/fix_report.md << 'REPORT'
-# Fix Report: <LENDER> (<JIRA_KEY>) — SUCCESS
+### Step 4k: Mark Task as Fixed
 
-## Changes
-- Ratesheet updated to <DATE>
-- Expectations regenerated
-- <code fixes if any>
-
-## Files Modified
-<list from git diff --cached --stat>
-
-## Test Results
-- AdjustmentParsersTest: PASS
-- RateParserTest: PASS
-- Verification (both): PASS
-REPORT
-```
-
-Emit:
-```bash
-source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
-emit_agent_step "fix-parser" "Committed <JIRA_KEY>"
-```
-
-### Step 4m: Mark Task as Fixed (leave at "In Progress")
-
-**Do NOT transition to "Done".** Leave the task at "In Progress" so the user can review and close it themselves.
-
-Add to fixed list:
-```
-fixed_tasks.append({ key: <JIRA_KEY>, lender: <LENDER> })
-```
-
-Emit:
-```bash
-source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
-emit_agent_step "fix-parser" "Fixed <JIRA_KEY> — left at In Progress for review"
-```
+Leave at "In Progress". Add to `fixed_tasks`.
 
 **→ Continue to next task**
 
 ---
 
-## STEP 5 — Summary Report
-
-After all tasks are processed, emit pipeline done and present the summary:
+## STEP 5 — Summary Report + Cookbook Stats
 
 ```bash
 source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
@@ -618,24 +546,27 @@ emit_pipeline_done
 ```
 ## Fix Parser Pipeline — Complete
 
-### Fixed (N tasks)
-| Key | Lender | Commit | Fix Type |
-|-----|--------|--------|----------|
-| MOSO-15944 | BrokerFirstFunding (NonQM) | abc1234 | expectations only |
-| MOSO-15943 | LoganFinance (NonQM) | def5678 | code fix (2 beads) |
-...
+### Results
+| Key | Lender | Tier | Fix Type | Commit |
+|-----|--------|------|----------|--------|
+| MOSO-15944 | BrokerFirstFunding | 0 | auto-fix (expectations) | abc1234 |
+| MOSO-15943 | LoganFinance | 0 | auto-fix (expectations) | def5678 |
+| MOSO-15942 | NewLender | 1 | guided fix (CRAWL_MISMATCH) | ghi9012 |
 
-### Skipped (M tasks)
+### Skipped
 | Key | Lender | Reason |
 |-----|--------|--------|
-| MOSO-15941 | ADMortgage | Code fix failed after 3 attempts |
-...
+| MOSO-15941 | ADMortgage | Tier 2 failed after 3 attempts |
 
-### Review Warnings (if any)
-<Any code review warnings logged during the pipeline>
+### Cookbook Intelligence
+- Tier 0 auto-fixes: N (saved ~80% tokens each)
+- Tier 1 guided fixes: N (saved ~50% tokens each)
+- Tier 2 complex fixes: N
+- Failed: N
+- Lenders tracked in cookbook: <total>
 
-### Fix Reports
-Reports saved at: /tmp/fix-parser/<lender>/fix_report.md
+### Token Efficiency
+- Estimated tokens saved vs always-Tier-2: ~<percentage>%
 
 Total: N fixed, M skipped
 ```
@@ -644,16 +575,22 @@ Total: N fixed, M skipped
 
 ## Optimization Rules (Always Enforced)
 
-1. **Memory-First**: Always check `infrastructure_index.md` before searching. Never run broad `find` or `grep -r` across the workspace when memory has the answer.
+1. **Tier-First**: ALWAYS classify the error before deciding what to do. Never default to spawning an agent.
 
-2. **No Re-reads**: Once a lender's Tables/RateParser/AdjParser paths are resolved and cached in `lender_context`, never search for them again. Files read in Step 4a stay in context — do not re-read in Step 4h.
+2. **Cookbook-First**: Check cookbook before memory, memory before search. If cookbook has cached paths → skip all lookups.
 
-3. **Beads over Blob**: When spawning parser-dev for fixes, decompose the error into ordered beads with exact file paths. Never send a vague "fix this error" prompt.
+3. **Lazy Reading**: Don't read parser files until classification demands it. Tier 0 reads NOTHING. Tier 1 reads ONE file. Tier 2 reads all.
 
-4. **Verify Before Commit**: Always run the verification test (Step 4i) after fixes pass. The flow is: Test → Fix → Test → Commit. Never commit without the second test pass.
+4. **Learn from Every Fix**: Update cookbook after EVERY fix (success or failure). Record: tier used, error type, fix pattern, paths.
 
-5. **Targeted Dev Agent**: Always pass memory-resolved file paths to the parser-dev agent with "do NOT search" instruction. This saves 30-50% of agent tokens.
+5. **Escalate, Don't Retry Blind**: If Tier 0 fails → Tier 1. If Tier 1 fails → Tier 2. Don't retry the same tier with the same approach.
 
-6. **Error-to-File Mapping**: Use the error type table in Step 4h to map errors directly to the right parser file. Don't let the dev agent guess which file to fix.
+6. **Cookbook Hints**: When Tier 1 matches a past fix pattern, include the hint. The dev agent can reuse the same fix if the error is similar.
 
-7. **Cache Everything**: Lender paths, ratesheet constants, test method names — cache on first lookup, reuse for all subsequent steps.
+7. **Skip Reviews for Tier 0**: Expectation-only changes are mechanical — don't waste tokens on code review.
+
+8. **Predictive Display**: Show cookbook predictions in the task list so the user knows what to expect before confirming.
+
+9. **Memory-First Paths**: Use `infrastructure_index.md` → `cookbook cached paths` → `lender-info.sh`. Never broad search.
+
+10. **Verify Before Commit**: Always run verification test. Flow: Classify → Fix (by tier) → Verify → Learn → Commit.
