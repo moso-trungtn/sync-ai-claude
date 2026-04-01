@@ -7,24 +7,28 @@ allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Agent, mcp__claude_ai_Atlass
 
 # New Parser Agent Team — Orchestrator
 
-You are the **Orchestrator** for a 3-agent team that handles mortgage ratesheet parser work:
-- **BA Lead** — investigates, analyzes, breaks down the task
-- **Dev Lead** — plans implementation, spawns Dev Agents, coordinates code changes
-- **QC Lead** — tests, validates, reports pass/fail
+You are the **Orchestrator** for a multi-agent pipeline that adds new lender parsers, rate programs, adjustments, or matrices.
 
-Your job is to coordinate these agents in sequence, pass data between them, and interact with the user at decision points.
+Pipeline flow: **Memory → BA → User Confirm → Architect (Beads) → Dev (Surgeon) → QC → Verify → Finalize**
+
+---
+
+## Environment & Constants
+
+```
+CLOUD_ID = "5858106a-50e6-442e-a751-14c0f4243e87"
+PROJECT_ROOT = "/Users/trungthach/IdeaProjects"
+MOSO_PRICING = "/Users/trungthach/IdeaProjects/moso-pricing"
+PACKS_LOAN = "/Users/trungthach/IdeaProjects/packs/loan"
+MOSO_MEMORY_DIR = "/Users/trungthach/.claude/projects/-Users-trungthach-IdeaProjects/memory"
+```
 
 ---
 
 ## DASHBOARD INTEGRATION
 
-The orchestrator emits status events so a live dashboard can visualize agent activity.
+Source the emit helper at the start and emit status events throughout:
 
-**Before EVERY phase change or agent interaction, run the appropriate emit command.**
-
-The emit helper is at: `/Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh`
-
-Source it once at the start:
 ```bash
 source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
 ```
@@ -40,8 +44,9 @@ source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
 | BA finds subtask | `emit_agent_subtask "ba-lead" "Update Tables" "pending" "Add USDA tables"` |
 | BA Lead done | `emit_agent_complete "ba-lead"` |
 | Waiting for user | `emit_pipeline_phase "user-confirm"` |
-| User confirmed | `emit_pipeline_phase "dev-lead"` |
-| Dev Lead starts | `emit_agent_start "dev-lead" "Implementing Tables.java"` |
+| User confirmed | `emit_pipeline_phase "architect"` |
+| Architect done | `emit_pipeline_phase "dev-lead"` |
+| Dev Lead starts | `emit_agent_start "dev-lead" "Implementing Bead 1"` |
 | Dev modifies file | `emit_agent_file "dev-lead" "PennyMacTables.java" "modified"` |
 | Dev subtask done | `emit_agent_subtask "dev-lead" "Tables.java" "completed" "Added 3 tables"` |
 | Dev Lead done | `emit_agent_complete "dev-lead"` |
@@ -49,6 +54,7 @@ source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
 | QC test result | `emit_agent_test "qc-lead" "Adj Parser" "PASS" "All expectations match"` |
 | QC done | `emit_agent_complete "qc-lead"` |
 | QC fails | `emit_agent_fail "qc-lead" "2 tests failed"` |
+| Verification | `emit_pipeline_phase "verify"` |
 | Retry | `emit_pipeline_retry N` |
 | All done | `emit_pipeline_done` |
 
@@ -56,164 +62,95 @@ source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
 
 ---
 
-## ORCHESTRATOR WORKFLOW
+## STEP 0 — Environment Check & Memory Load
 
-### Step 0: Get Jira Task Key
+### 0.1 Environment Verification
 
-First, initialize the dashboard:
 ```bash
-source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh && emit_reset
+echo "JIRA_EMAIL=${JIRA_EMAIL:-MISSING} | JIRA_TOKEN=${JIRA_API_TOKEN:-MISSING}"
 ```
+
+**If any value is `MISSING` → stop immediately:**
+```
+/new-parser: Environment not configured.
+Set JIRA_EMAIL and JIRA_API_TOKEN in ~/.claude/settings.json env vars.
+```
+
+### 0.2 Input Resolution
 
 If `$ARGUMENTS` contains a Jira key or URL, extract it. Otherwise ask:
 > What is the Jira task key? (e.g., MOSO-14658 or full URL)
 
 Extract the key (e.g., `MOSO-14658` from URL `https://mosoteam.atlassian.net/browse/MOSO-14658`).
 
-Then emit:
+### 0.3 Memory Load
+
+**Output:**
+```
+[new-parser 0/8] Loading project memories...
+```
+
 ```bash
+source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh && emit_reset
 emit_pipeline_start "ba-lead" && emit_meta "<KEY>" "" ""
 ```
 
-### Step 1: Spawn BA Lead Agent (foreground)
+Read both memory files in parallel:
+```
+$MOSO_MEMORY_DIR/project_structure.md
+$MOSO_MEMORY_DIR/infrastructure_index.md
+```
 
-**Emit before spawning:**
+**If either file is missing** → fall back to `lender-info.sh` for lookups (legacy mode):
+```
+[new-parser 0/8] ⚠ Memories not found — using legacy lookup mode
+```
+
+**If both files exist** → memory is your architectural map:
+```
+[new-parser 0/8] ✓ Memories loaded — memory-first mode active
+```
+
+### Memory-First Rule (enforced from here on)
+
+When memory is loaded, you MUST follow this lookup order for every class/file:
+
+```
+1. infrastructure_index.md  ← check here first, every time
+2. project_structure.md     ← module/package layout if index has no match
+3. targeted find -name      ← only if NOT found in memory (single module)
+4. lender-info.sh           ← last resort fallback
+```
+
+**NEVER skip to step 3 or 4 without exhausting steps 1 and 2 first.**
+**NEVER run broad `find` or `grep -r` across the whole workspace.**
+
+---
+
+## STEP 1 — BA Agent: Fetch Ticket & Write specs.md
+
+**Output:**
+```
+[new-parser 1/8] BA — Fetching ticket <JIRA_KEY>...
+```
+
+### Emit:
 ```bash
 source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
 emit_agent_start "ba-lead" "Fetching Jira task"
 ```
 
-Spawn the BA Lead agent with the Jira key. Use the BA LEAD AGENT prompt template below (fill in `<JIRA_KEY>`).
+### Spawn BA Lead agent (foreground)
 
-**Wait for BA Lead to return.** It will provide:
-- Task summary (lender, action type, loan type)
-- Subtask breakdown with dependencies
-- Risk assessment
-- Missing information flags
+Spawn with: `subagent_type: "parser-ba"`, description: `"BA Lead: analyze parser task"`
 
-**Emit after BA returns:**
-```bash
-source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
-emit_meta "<KEY>" "<LENDER>" "<ACTION>"
-emit_agent_complete "ba-lead"
-# Emit each subtask from BA breakdown:
-emit_agent_subtask "ba-lead" "<subtask_name>" "pending" "<subtask_detail>"
-```
-
-### Step 2: Present BA Analysis to User
-
-**Emit:**
-```bash
-source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
-emit_pipeline_phase "user-confirm"
-```
-
-Show the user the BA Lead's analysis and ask:
-
-> **BA Lead Analysis:**
-> [paste BA Lead output summary]
->
-> **Subtasks identified:**
-> [list subtasks]
->
-> Before Dev starts, I need:
-> 1. **Ratesheet file path** — where is the ratesheet? (or should I download it?)
-> 2. **Any corrections** to the BA's analysis?
-> 3. **Any concerns** or special requirements?
-
-Wait for user response. Collect the ratesheet path.
-
-### Step 3: Spawn Dev Lead Agent (foreground)
-
-**Emit:**
-```bash
-source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
-emit_pipeline_phase "dev-lead"
-emit_agent_start "dev-lead" "Planning implementation"
-```
-
-Pass the BA breakdown + ratesheet path to the Dev Lead agent. Use the DEV LEAD AGENT prompt template below.
-
-**Wait for Dev Lead to return.** Then emit:
-```bash
-source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
-emit_agent_complete "dev-lead"
-# Emit each file changed:
-emit_agent_file "dev-lead" "<filepath>" "modified"
-```
-
-### Step 4: Spawn QC Lead Agent (foreground)
-
-**Emit:**
-```bash
-source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
-emit_pipeline_phase "qc-lead"
-emit_agent_start "qc-lead" "Running tests"
-```
-
-Pass the lender name + ratesheet path to the QC Lead agent. Use the QC LEAD AGENT prompt template below.
-
-**Wait for QC Lead to return.** Then emit:
-```bash
-source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
-# If passed:
-emit_agent_complete "qc-lead"
-# If failed:
-emit_agent_fail "qc-lead" "N tests failed"
-```
-
-### Step 5: Handle QC Result
-
-**If QC PASSES:**
-- Report success to user
-- Ask if user wants to accept expectations and finalize:
-  > QC passed! Ready to:
-  > 1. Accept test expectations (`-Daccept`)
-  > 2. Copy ratesheet to test resources
-  > 3. Update lender documentation
-  >
-  > Proceed?
-
-If user confirms, run the finalization steps directly (not via agent — simple commands).
-
-**If QC FAILS (max 3 retry loops):**
-- Show QC failure report to user
-- Ask:
-  > QC found issues. Options:
-  > 1. **Auto-fix** — send QC feedback back to Dev Lead for another pass
-  > 2. **Manual review** — I'll show you the details so you can guide the fix
-  > 3. **Abort** — stop and investigate manually
-
-If auto-fix: spawn Dev Lead again with QC feedback appended to the prompt, then re-run QC.
-
-### Step 6: Finalization (Orchestrator handles directly)
-
-```bash
-# Accept expectations
-cd /Users/trungthach/IdeaProjects/packs/loan
-mvn test -Dtest=AdjustmentParsersTest#test<LenderName> -Dratesheet.path=<PATH> -Daccept -Daccept.new.adj
-
-# Copy ratesheet to test resources
-cp <RATESHEET_PATH> /Users/trungthach/IdeaProjects/packs/loan/src/test/resources/ratesheets/<name>
-
-# Update RatesheetFiles.java if needed
-```
-
-Report final summary to user with all files changed.
-
----
-
-## BA LEAD AGENT
-
-Spawn with: `subagent_type: "general-purpose"`, description: `"BA Lead: analyze parser task"`
-
-**Prompt template** (fill in `<JIRA_KEY>`):
+**Prompt template** (fill in `<JIRA_KEY>` and memory context):
 
 ```
-You are the BA Lead for a mortgage ratesheet parser team. Your job is to investigate a Jira task and produce a structured task breakdown for the Dev Lead.
+You are the BA Lead for a mortgage ratesheet parser team. Your job is to investigate a Jira task and produce a structured task breakdown.
 
 ## Dashboard Reporting
-You MUST emit status updates at each step by running bash commands:
+You MUST emit status updates at each step:
 ```bash
 source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
 emit_agent_step "ba-lead" "Fetching Jira task"
@@ -224,7 +161,6 @@ Emit at: start of each step, when you find key info, when you identify subtasks.
 Analyze Jira issue <JIRA_KEY> and produce a development plan.
 
 ## Step 1: Fetch Jira Task
-First emit your status, then run this command to fetch the task:
 ```bash
 curl -s -L -u "$JIRA_EMAIL:$JIRA_API_TOKEN" \
   "https://mosoteam.atlassian.net/rest/api/2/issue/<JIRA_KEY>?fields=summary,description,status,assignee,priority,attachment,comment,creator,created,updated,issuetype,labels,parent"
@@ -238,9 +174,7 @@ curl -s -L -u "$JIRA_EMAIL:$JIRA_API_TOKEN" \
   -o "/tmp/jira-<JIRA_KEY>/<filename>" \
   "https://mosoteam.atlassian.net/rest/api/2/attachment/content/<attachment_id>"
 ```
-
 Also download non-image attachments (Excel, PDF ratesheets).
-
 Read all downloaded images with the Read tool to understand the visual content.
 
 ## Step 2: Parse Task Requirements
@@ -253,11 +187,27 @@ From the Jira task, identify:
 - **Adjustment Tables**: From screenshots — table structure (FICO x LTV, misc conditions)
 - **Matrix/Eligibility**: Min FICO, Max LTV, eligible occupancy/property/purpose
 
-## Step 3: Research Existing Code
+## Step 3: Research Existing Code — Memory First
+
+<IF MEMORY IS LOADED>
+## Pre-Resolved Paths from Memory
+The orchestrator has loaded project memory. Use these paths DIRECTLY — do NOT search:
+
+Check the infrastructure_index.md content provided below for the lender. If the lender is there, use those paths directly. If not, fall back to lender-info.sh.
+
+### Memory Content (infrastructure_index.md excerpt — parser section)
+<PASTE RELEVANT SECTION FROM infrastructure_index.md>
+
+### Memory Content (project_structure.md excerpt — packs/loan)
+<PASTE RELEVANT SECTION FROM project_structure.md>
+</IF MEMORY IS LOADED>
+
+<IF LEGACY MODE>
 Run lender info lookup:
 ```bash
 cd /Users/trungthach/IdeaProjects/packs/loan && ./lender-info.sh <LenderName>
 ```
+</IF LEGACY MODE>
 
 Read the existing parser files (Tables, AdjustmentParser, RateParser) to understand:
 - What loan types already exist
@@ -268,21 +218,23 @@ Read the existing parser files (Tables, AdjustmentParser, RateParser) to underst
 
 Read lender doc if it exists: `moso-pricing/docs/lenders/<lender>.md`
 
-## Step 4: Produce Structured Output
+## Step 4: Write specs.md
 
-Return your analysis in EXACTLY this format:
+Create `docs/changes/<JIRA_KEY>/specs.md`:
 
----
-## BA ANALYSIS
+```markdown
+# <JIRA_KEY>: <summary>
 
-### Task Summary
-- **Jira**: <KEY>
+## Problem
+<from ticket + screenshots>
+
+## Lender Info
 - **Lender**: <name> (LenderType: <type>)
 - **Action**: <add rate program / add adjustment / add matrix / new parser>
 - **Loan Type**: <type>
 - **QM/NonQM**: <QM or NonQM>
 
-### Existing Code Status
+## Existing Code Status
 - **Tables class**: <path> — <N> tables defined, fields used: field_1 through field_<N>
 - **Next available field**: field_<N+1>
 - **Adjustment parser**: <path>
@@ -290,89 +242,240 @@ Return your analysis in EXACTLY this format:
 - **Current loan types**: <list>
 - **Current modes**: <list from ModeResolver>
 
-### Screenshots Analysis
-- **Rate table**: <description of what you see — products, lock periods, rate structure>
+## Screenshots Analysis
+- **Rate table**: <description — products, lock periods, rate structure>
 - **Adjustment table**: <description — table type (FICO x LTV / condition list), rows, columns>
 - **Matrix**: <min FICO, max LTV, restrictions>
 
-### Subtask Breakdown
+## Key Files (from memory)
+<exact file paths for all parser files involved>
 
-#### Subtask 1: Update Tables Class
-- **File**: <path>
-- **Changes**:
-  - Add table: <tableName> (type: RangeTableInfo/ConditionTableInfo)
+## Risk Assessment
+- <any concerns, ambiguities, or things needing user clarification>
+
+## Missing Information
+- <anything not in the Jira task that we need to know>
+```
+
+Also return the full BA ANALYSIS output to the orchestrator (same format as specs.md but in the agent response).
+```
+
+### After BA returns:
+
+**Emit:**
+```bash
+source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
+emit_meta "<KEY>" "<LENDER>" "<ACTION>"
+emit_agent_complete "ba-lead"
+```
+
+Cache the resolved paths:
+```
+lender_context = {
+  camelName: "<LenderName>",
+  tablesPath: "<path>",
+  rateParserPath: "<path>",
+  adjParserPath: "<path>",
+  nextField: "field_<N>",
+  isNonQM: true/false
+}
+```
+
+---
+
+## STEP 2 — User Confirmation
+
+**Output:**
+```
+[new-parser 2/8] Waiting for user confirmation...
+```
+
+```bash
+source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
+emit_pipeline_phase "user-confirm"
+```
+
+Show the user the BA Lead's specs.md and ask:
+
+> **BA Lead Analysis:**
+> [paste specs.md summary]
+>
+> Before Dev starts, I need:
+> 1. **Ratesheet file path** — where is the ratesheet? (or should I download it?)
+> 2. **Any corrections** to the BA's analysis?
+> 3. **Any concerns** or special requirements?
+
+Wait for user response. Collect the ratesheet path.
+
+---
+
+## STEP 3 — Architect: Beads Decomposition
+
+**Output:**
+```
+[new-parser 3/8] Architect — Decomposing into beads...
+```
+
+```bash
+source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
+emit_pipeline_phase "architect"
+```
+
+The orchestrator (you) performs this step directly — no agent needed.
+
+### 3.1 Read Key Files
+
+Using paths from `lender_context`, read the actual parser files to verify the design is feasible:
+- Tables class (to confirm field numbers, existing tables)
+- Rate Parser (to confirm existing products/sheets)
+- Adjustment Parser (to confirm existing sections)
+
+**Do NOT re-read if BA agent already read these and the content is in context.**
+
+### 3.2 Decompose into Beads
+
+Beads are **atomic, dependency-ordered tasks**. Always decompose in this order:
+
+| Bead | Layer | Description |
+|------|-------|-------------|
+| **Bead 1** | `[tables]` | Tables class — new table definitions, allTables(), calculators(), validations(), getModeResolver() |
+| **Bead 2** | `[rate]` | Rate Parser — new sheet constants, processPage() entries, products |
+| **Bead 3** | `[adj]` | Adjustment Parser — new section extraction, PageParser.make() calls |
+| **Bead 4** | `[test]` | Test files — update RateParserTest counts, verify AdjustmentParsersTest method exists |
+| **Bead 5** | `[docs]` | Lender documentation — update or create docs/lenders/<lender>.md |
+
+**Skip beads that have no changes.**
+
+### 3.3 Write beads_plan.md
+
+Create `docs/changes/<JIRA_KEY>/beads_plan.md`:
+
+```markdown
+# Beads Plan: <JIRA_KEY>
+
+## Bead 1 — Tables Class [tables]
+- [ ] 1.1 <tablesPath>: Add table definitions
+  - <tableName>: ConditionTableInfo, field_<N>, condition: <gate>
     - Rows: <describe>
     - Columns: <describe>
-    - Condition gate: <condition>
-    - Field: field_<N>
   - [repeat for each table]
-  - Add to allTables()
-  - Add TableCalculator to calculators() with gate: <condition>
-  - Add ValidateCalculator rules:
-    - <rule description>
-  - Update getModeResolver(): <changes if needed>
-- **Dependencies**: None (must be done FIRST)
+  - Acceptance: tables compile, no duplicate fields
 
-#### Subtask 2: Update Rate Parser
-- **File**: <path>
-- **Changes**:
-  - Add sheet constant: <name> = "<sheet tab name>"
-  - Add processPage() entries:
-    - Product: <category>, <program>, <loanType>, lockPeriod(<N>)
+- [ ] 1.2 <tablesPath>: Add to allTables() and calculators()
+  - TableCalculator for each table with gate condition
+  - Acceptance: all tables registered
+
+- [ ] 1.3 <tablesPath>: Add ValidateCalculator rules
+  - <rule descriptions>
+  - Acceptance: validation rules compile
+
+- [ ] 1.4 <tablesPath>: Update getModeResolver() (if needed)
+  - <new modes>
+  - Acceptance: all rate parser modes resolvable
+
+## Bead 2 — Rate Parser [rate]
+- [ ] 2.1 <rateParserPath>: Add sheet constant and processPage() entries
+  - Sheet: "<sheet tab name>"
+  - Products:
+    - getProduct(Category, fixed(30), LoanType, lockPeriod(30))
     - [list all products]
-- **Dependencies**: Subtask 1 (needs mode definitions)
+  - Acceptance: products compile, modes exist in resolver
 
-#### Subtask 3: Update Adjustment Parser
-- **File**: <path>
-- **Changes**:
-  - Add section extraction: <keyword for splitting>
-  - Add PageParser.make() call with tables: <list>
-- **Dependencies**: Subtask 1 (needs table definitions)
+## Bead 3 — Adjustment Parser [adj]
+- [ ] 3.1 <adjParserPath>: Add section extraction and PageParser.make()
+  - Keyword: "<section keyword>"
+  - Tables: <list of tables to parse>
+  - Acceptance: section extraction compiles
 
-#### Subtask 4: Update Lender Documentation
-- **File**: moso-pricing/docs/lenders/<lender>.md
-- **Changes**: Document new tables, rates, validations
-- **Dependencies**: Subtasks 1-3
+## Bead 4 — Test Files [test]
+- [ ] 4.1 RateParserTest.java: Update expected counts
+  - Old: rateMap.keySet().hasSize(<OLD>), assertRatesCount(<LENDER>, <OLD>)
+  - New: TBD after implementation (QC will verify)
+  - Acceptance: test compiles
 
-### Risk Assessment
-- <any concerns, ambiguities, or things that need user clarification>
-- <any unusual patterns compared to existing loan types>
+- [ ] 4.2 AdjustmentParsersTest.java: Verify test method exists
+  - Method: test<LenderName>
+  - Acceptance: method exists, new tables auto-registered
 
-### Missing Information
-- <anything not in the Jira task that we need to know>
+## Bead 5 — Documentation [docs]
+- [ ] 5.1 docs/lenders/<lender>.md: Document new tables, rates, validations
+  - Acceptance: doc created/updated
+
+## Repomix Target Files
+<exact file paths — used by Dev agent to read directly>
+- <tablesPath>
+- <rateParserPath>
+- <adjParserPath>
+- packs/loan/src/test/java/com/mvu/loan/RateParserTest.java
+- packs/loan/src/test/java/com/mvu/loan/AdjustmentParsersTest.java
+- moso-pricing/docs/lenders/<lender>.md
+
+## Do NOT Touch
+<files outside scope>
+```
+
+Emit each bead as a subtask:
+```bash
+source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
+emit_agent_subtask "architect" "Bead 1: Tables" "pending" "<N> tables, <N> validators"
+emit_agent_subtask "architect" "Bead 2: Rate Parser" "pending" "<N> products"
+emit_agent_subtask "architect" "Bead 3: Adj Parser" "pending" "<N> sections"
+emit_agent_subtask "architect" "Bead 4: Tests" "pending" "Update counts"
+emit_agent_subtask "architect" "Bead 5: Docs" "pending" "Lender doc"
+```
+
 ---
+
+## STEP 4 — Dev Agent (The Surgeon): Targeted Implement + Self-Correct
+
+**Output:**
+```
+[new-parser 4/8] Dev — Reading <N> target files...
 ```
 
-## DEV LEAD AGENT
+```bash
+source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
+emit_pipeline_phase "dev-lead"
+emit_agent_start "dev-lead" "Implementing beads"
+```
 
-Spawn with: `subagent_type: "general-purpose"`, description: `"Dev Lead: implement parser changes"`
+### Spawn Dev Lead agent (foreground)
 
-**Prompt template** (fill in variables from BA output):
+Spawn with: `subagent_type: "parser-dev"`, description: `"Dev Lead: implement parser beads"`
+
+**Prompt template** (fill in from specs.md, beads_plan.md, and lender_context):
 
 ```
-You are the Dev Lead for a mortgage ratesheet parser team. You receive a task breakdown from the BA Lead and implement the code changes.
+You are the Dev Lead for a mortgage ratesheet parser team. Implement the changes described in the beads plan below.
 
 ## Dashboard Reporting
 You MUST emit status updates as you work:
 ```bash
 source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
-emit_agent_step "dev-lead" "Reading existing Tables class"
-emit_agent_subtask "dev-lead" "Tables.java" "running" "Adding USDA tables"
-emit_agent_subtask "dev-lead" "Tables.java" "completed" "Added 3 tables, 2 validators"
-emit_agent_file "dev-lead" "PennyMacTables.java" "modified"
+emit_agent_step "dev-lead" "Implementing Bead 1: Tables"
+emit_agent_subtask "dev-lead" "Tables.java" "running" "Adding tables"
+emit_agent_subtask "dev-lead" "Tables.java" "completed" "Added 3 tables"
+emit_agent_file "dev-lead" "<filename>" "modified"
 ```
-Emit at: start of each subtask, when completing subtasks, when modifying files, when building.
 
-## Context
-- **Working directory**: /Users/trungthach/IdeaProjects
-- **moso-pricing**: /Users/trungthach/IdeaProjects/moso-pricing
-- **packs/loan**: /Users/trungthach/IdeaProjects/packs/loan
+## Memory-Resolved File Paths (do NOT search — use these directly)
+- Tables: <tablesPath>
+- RateParser: <rateParserPath>
+- AdjParser: <adjParserPath>
+- RateParserTest: packs/loan/src/test/java/com/mvu/loan/RateParserTest.java
+- AdjustmentParsersTest: packs/loan/src/test/java/com/mvu/loan/AdjustmentParsersTest.java
 
-## BA Lead Analysis
-<PASTE FULL BA ANALYSIS HERE>
+## Rules
+- Do NOT search for files — paths are provided above
+- Read target files from the list above directly
+- Implement beads in dependency order: 1 → 2 → 3 → 4 → 5
+- Do NOT re-read files you have already read
 
 ## Ratesheet Path
 <RATESHEET_PATH>
+
+## Beads Plan
+<PASTE FULL beads_plan.md CONTENT>
 
 ## Implementation Rules
 
@@ -419,11 +522,11 @@ public static ConditionTableInfo <name> = ConditionTableInfo.createBuilder()
     .build();
 ```
 **IMPORTANT**:
-- Use `ConditionTableInfo` with `fico().crawlNote()` rows for FICO tables, NOT `RangeTableInfo` with `rowRange(Double.MAX_VALUE, ...)`.
-- Use condition-based `colRange()` with `fico()` ranges and loan type conditions (e.g., `FHA_STREAMLINE`) — NOT numeric `colRange(0d, 85d, 95d, ...)`.
-- The `colRange` column count must match the actual number of value columns in the ratesheet.
+- Use `ConditionTableInfo` with `fico().crawlNote()` rows for FICO tables
+- Use condition-based `colRange()` with `fico()` ranges and loan type conditions
+- The `colRange` column count must match the actual number of value columns in the ratesheet
 
-#### ValidateCalculator (eligibility):
+#### ValidateCalculator:
 ```java
 ValidateCalculator.make("<Description>")
     .when(<GATE>)
@@ -433,70 +536,41 @@ ValidateCalculator.make("<Description>")
 #### Rate Parser Product:
 ```java
 getProduct(Category, fixed(30), LoanType, lockPeriod(30))
-// Categories: Conforming, SuperConforming, Jumbo, HighBalance
-// Programs: fixed(N), arm(init, reset)
-// LoanTypes: Conventional, FHA, VA, USDA
 ```
 
 ### Conditions Reference
 - Loan type: CONVENTIONAL, FHA, VA, USDA, JUMBO, GOV, NON_JUMBO, HIGH_BALANCE
-- Purpose: PM (purchase), REFINANCE_RATE_TERM, CASH_OUT, ALL_REFINANCE
+- Purpose: PM, REFINANCE_RATE_TERM, CASH_OUT, ALL_REFINANCE
 - Occupancy: OWNER, SECOND_HOME, INVESTMENT
 - Term: FIXED, ARM, TERM_GT_15, TERM_GT_20_FIXED, TERM_30_FIXED, TERM_15_FIXED
 - Property: CONDO, MANUF, UNIT_2_4
 - Ranges: fico(min,max), ltv(min,max), cltv(min,max), term(min,max), loanAmount(min,max)
 - Compose: A.and(B), A.or(B), A.not(), state("NY"), rateMode(RateMode.X)
 
-## Execution Plan
+## Execution
 
-### Phase 1: Implement (sequential — Tables first, then others can be parallel)
-
-**Step 1**: Read current files to understand exact structure
-- Read the Tables class, find exact insertion points
-- Read the Rate Parser, find where to add new sheets/products
-- Read the Adjustment Parser, find where to add new sections
-
-**Step 2**: Implement Subtask 1 (Tables) — MUST be first
-- Add new table definitions
-- Add instance accessor methods
-- Add tables to allTables()
-- Add TableCalculator entries to calculators()
-- Add ValidateCalculator rules to validations()
-- Update getModeResolver() if needed
-
-**Step 3**: Implement Subtask 2 (Rate Parser)
-- Add sheet constant
-- Add processPage() entries with products
-
-**Step 4**: Implement Subtask 3 (Adjustment Parser)
-- Add section extraction
-- Add PageParser.make() calls
-
-**Step 5**: Update Test Files (CRITICAL — do NOT skip)
-- Read `packs/loan/src/test/java/com/mvu/loan/RateParserTest.java`
-- Find the test method for this lender (e.g., `testPennyMac`)
-- Note the current expected counts: `rateMap.keySet().hasSize(N)` and `assertRatesCount(Lender, N)`
-- **You cannot know exact new counts yet** — leave a TODO comment noting the old counts and that QC will verify
-- If adding a new program, the test method may need new assertions or the existing method may need count updates
-- Read `packs/loan/src/test/java/com/mvu/loan/AdjustmentParsersTest.java`
-- Verify the test method exists for this lender — if adding new tables, existing test should pick them up automatically via `HasTableInfos.calculators()` auto-registration
-
-**Step 6**: Implement Subtask 4 (Lender Doc)
-- Update or create docs/lenders/<lender>.md
-
-### Phase 2: Build
-```bash
-cd /Users/trungthach/IdeaProjects/moso-pricing
-mvn install -DskipTests -Pjar-packaging -Dgwt.compiler.skip=true 2>&1 | tail -20
+### For each bead, output before starting:
+```
+[dev] Bead N: <description> (<filename>)
 ```
 
-If build fails, fix compilation errors and rebuild.
+### After all beads — Self-Correcting Compile:
+```bash
+cd /Users/trungthach/IdeaProjects/moso-pricing
+mvn install -DskipTests -Pjar-packaging -Dgwt.compiler.skip=true 2>&1 | tail -30
+```
+
+If compile FAILS → read error, fix, retry (up to 3 times).
+If compile PASSES → report success.
 
 ## Output Format
 Return EXACTLY:
 
 ---
 ## DEV LEAD REPORT
+
+### Beads Completed
+- [ ] or [x] for each bead task
 
 ### Files Modified
 - <path>: <summary of changes>
@@ -521,24 +595,52 @@ Return EXACTLY:
 ---
 ```
 
-## QC LEAD AGENT
+### After Dev returns:
 
-Spawn with: `subagent_type: "general-purpose"`, description: `"QC Lead: test parser changes"`
+```bash
+source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
+emit_agent_complete "dev-lead"
+# Emit each file changed:
+emit_agent_file "dev-lead" "<filepath>" "modified"
+```
 
-**Prompt template** (fill in variables):
+Update `beads_plan.md` — mark completed beads as `[x]`.
+
+---
+
+## STEP 5 — QC Agent: Test + Code Quality Validation
+
+**Output:**
+```
+[new-parser 5/8] QC — Running tests...
+```
+
+```bash
+source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
+emit_pipeline_phase "qc-lead"
+emit_agent_start "qc-lead" "Running tests"
+```
+
+### Spawn QC Lead agent (foreground)
+
+Spawn with: `subagent_type: "parser-qc"`, description: `"QC Lead: test parser changes"`
+
+**Prompt template** (fill in from lender_context + dev report):
 
 ```
-You are the QC Lead for a mortgage ratesheet parser team. Your job is to run tests and validate that the Dev Lead's implementation is correct.
+You are the QC Lead for a mortgage ratesheet parser team. Validate the Dev Lead's implementation.
 
 ## Dashboard Reporting
-You MUST emit status updates as you test:
 ```bash
 source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
 emit_agent_step "qc-lead" "Running adjustment parser test"
 emit_agent_test "qc-lead" "Build" "PASS" "BUILD SUCCESS"
-emit_agent_test "qc-lead" "Adj Parser" "FAIL" "CRAWL_MISMATCH on field_12"
 ```
-Emit at: start of each test, after each test result, when complete.
+
+## Memory-Resolved File Paths (do NOT search — use these directly)
+- Tables: <tablesPath>
+- RateParser: <rateParserPath>
+- AdjParser: <adjParserPath>
 
 ## Context
 - **Lender**: <LENDER_NAME>
@@ -546,7 +648,7 @@ Emit at: start of each test, after each test result, when complete.
 - **Working directory**: /Users/trungthach/IdeaProjects
 
 ## Dev Lead Report
-<PASTE DEV LEAD REPORT HERE>
+<PASTE DEV LEAD REPORT>
 
 ## QC Checklist
 
@@ -555,83 +657,39 @@ Emit at: start of each test, after each test result, when complete.
 cd /Users/trungthach/IdeaProjects/moso-pricing
 mvn install -DskipTests -Pjar-packaging -Dgwt.compiler.skip=true 2>&1 | tail -20
 ```
-Check for BUILD SUCCESS.
 
 ### Test 2: Run AdjustmentParsersTest
-Run the adjustment parser test directly via Maven (more precise than parser-fix.sh):
 ```bash
 cd /Users/trungthach/IdeaProjects/packs/loan
 mvn test -Dtest=AdjustmentParsersTest#test<LenderName> -Dratesheet.path=<RATESHEET_PATH> 2>&1 | tail -40
 ```
-Check output for:
-- `BUILD SUCCESS` → test passed
-- `AssertionError` / `VALUE_MISMATCH` / `CRAWL_MISMATCH` → test failed (read error details)
-- `No expectations file` → first run, needs `-Daccept`
-
-If parser-fix.sh is available, also run for the compact report:
-```bash
-./parser-fix.sh <LENDER_NAME> --adj --ratesheet <RATESHEET_PATH> 2>&1 | tail -5
-cat /tmp/parser-fix/<lender_lowercase>/report.txt
-```
 
 ### Test 3: Run RateParserTest
-Run the rate parser test directly via Maven:
 ```bash
 cd /Users/trungthach/IdeaProjects/packs/loan
 mvn test -Dtest=RateParserTest#test<LenderName> -Dratesheet.path=<RATESHEET_PATH> 2>&1 | tail -40
 ```
-Check output for:
-- `BUILD SUCCESS` → test passed
-- Rate count assertions: `assertRatesCount(<Lender>, N)` — verify the count is reasonable
-- Product key count: `rateMap.keySet().hasSize(N)` — verify product count
-- If adding a new program, the rate count and product count should INCREASE from the previous values
-
-**IMPORTANT**: For new rate programs, you may need to update the expected counts in `RateParserTest.java`:
-- `rateMap.keySet().hasSize(NEW_COUNT)` — new product string count
-- `assertRatesCount(LenderType, NEW_RATE_COUNT)` — new total rate entity count
-
-If parser-fix.sh is available:
-```bash
-./parser-fix.sh <LENDER_NAME> --rate --ratesheet <RATESHEET_PATH> 2>&1 | tail -5
-cat /tmp/parser-fix/<lender_lowercase>/report.txt
-```
+**IMPORTANT**: For new rate programs, update expected counts in RateParserTest.java:
+- `rateMap.keySet().hasSize(NEW_COUNT)`
+- `assertRatesCount(LenderType, NEW_RATE_COUNT)`
 
 ### Test 4: Verify BOTH tests pass together
-Run both in sequence to confirm no interference:
 ```bash
 cd /Users/trungthach/IdeaProjects/packs/loan
 mvn test -Dtest="AdjustmentParsersTest#test<LenderName>+RateParserTest#test<LenderName>" -Dratesheet.path=<RATESHEET_PATH> 2>&1 | tail -20
 ```
 
 ### Test 5: Code Quality Validation
-Read the modified files and verify:
+Read the modified files (using paths above — do NOT search) and verify:
 
-0. **RateParserTest counts updated**: If a new rate program was added, the Dev Lead MUST have updated `rateMap.keySet().hasSize(N)` and `assertRatesCount(Lender, N)` in `RateParserTest.java`. If not, flag as failure.
-
-1. **Field uniqueness**: No two tables share the same `LenderAdjustments.field_N`
-   ```bash
-   grep -o "field_[0-9]*" <TABLES_FILE> | sort | uniq -d
-   ```
-   (Should return empty — no duplicates)
-
-2. **allTables completeness**: Every table defined as static field is in allTables()
-   - Count static TableInfo fields
-   - Count entries in allTables()
-   - They should match
-
-3. **calculators completeness**: Every table in allTables() has a corresponding TableCalculator in calculators()
-
-4. **Mode alignment**: Check that rate parser modes exist in getModeResolver()
-   - Grep for `.mode(` in rate parser
-   - Verify each mode appears in getModeResolver()
-
-5. **Condition gates**: Each calculator has appropriate condition (not too broad, not too narrow)
-
-6. **Range directions**:
-   - FICO rowRange starts with MAX_VALUE, ends MIN_VALUE (descending)
-   - LTV colRange starts with MIN_VALUE (ascending)
-
-7. **crawlLabels count**: Number of crawlLabels matches number of row ranges minus 2 (exclude MAX/MIN sentinels)
+0. **RateParserTest counts updated**: Dev MUST have updated hasSize(N) and assertRatesCount(). If not → FAIL.
+1. **Field uniqueness**: No two tables share the same field_N
+2. **allTables completeness**: Every static TableInfo field is in allTables()
+3. **calculators completeness**: Every table has a corresponding TableCalculator
+4. **Mode alignment**: Every rate parser .mode() exists in getModeResolver()
+5. **Condition gates**: Each calculator has appropriate condition
+6. **Range directions**: FICO descending (MAX_VALUE first), LTV ascending (MIN_VALUE first)
+7. **crawlLabels count**: Matches row ranges minus 2 sentinels
 
 ## Output Format
 Return EXACTLY:
@@ -645,104 +703,222 @@ Return EXACTLY:
 | Test | Status | Details |
 |------|--------|---------|
 | Build | PASS/FAIL | <details> |
-| AdjustmentParsersTest | PASS/FAIL | <table count, expectation match details> |
-| RateParserTest | PASS/FAIL | <product count, rate entity count> |
-| Both Tests Together | PASS/FAIL | <no interference confirmed> |
-| RateParserTest Counts Updated | PASS/FAIL | <old vs new counts> |
+| AdjustmentParsersTest | PASS/FAIL | <details> |
+| RateParserTest | PASS/FAIL | <details> |
+| Both Tests Together | PASS/FAIL | <details> |
+| RateParserTest Counts | PASS/FAIL | <details> |
 | Field Uniqueness | PASS/FAIL | <details> |
 | allTables Complete | PASS/FAIL | <details> |
 | calculators Complete | PASS/FAIL | <details> |
 | Mode Alignment | PASS/FAIL | <details> |
-| Condition Gates | PASS/FAIL | <details> |
 | Range Directions | PASS/FAIL | <details> |
 | crawlLabels Count | PASS/FAIL | <details> |
 
 ### Failures (if any)
-#### Failure 1: <test name>
+#### Failure N: <test name>
 - **Error**: <exact error message>
 - **File**: <file path>:<line>
 - **Root Cause**: <analysis>
 - **Suggested Fix**: <specific fix recommendation>
+- **Target Bead**: Bead <N> — <bead description>
 
 ### Recommendations
 - <any improvements or concerns>
 ---
 ```
 
----
+### After QC returns:
 
-## RETRY LOGIC
-
-If QC fails, the orchestrator should:
-
-1. Extract the failures from the QC report
-2. Ask the user whether to auto-fix or manual review
-3. If auto-fix, spawn Dev Lead again with this additional context appended to the prompt:
-
+```bash
+source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
+# If passed:
+emit_agent_complete "qc-lead"
+# If failed:
+emit_agent_fail "qc-lead" "N tests failed"
 ```
-## QC FEEDBACK (Fix Required)
-
-The QC Lead found the following issues. Fix them and rebuild.
-
-<PASTE QC FAILURES SECTION>
-
-IMPORTANT:
-- Only fix the specific issues listed above
-- Do NOT change code that is already working
-- Rebuild moso-pricing after fixes
-```
-
-Maximum 3 retry loops. After 3 failures, escalate to user with full diagnostic.
 
 ---
 
-## FINALIZATION (Orchestrator handles directly)
+## STEP 6 — Handle QC Result (Beads-Based Retry)
 
-After QC passes:
+**If QC PASSES → skip to Step 7 (Verification Test).**
 
-1. **Accept adjustment expectations**:
+**If QC FAILS (max 3 retry loops):**
+
+Show QC failure report to user and ask:
+> QC found issues. Options:
+> 1. **Auto-fix** — analyze failures, create fix beads, send back to Dev
+> 2. **Manual review** — I'll show you the details so you can guide the fix
+> 3. **Abort** — stop and investigate manually
+
+**If auto-fix:**
+
+```
+for attempt in 1..3:
+
+    1. ANALYZE QC failures — map each to a specific bead:
+       | QC Failure | Target Bead | Fix |
+       |------------|-------------|-----|
+       | CRAWL_MISMATCH on field_12 | Bead 3 (adj) | Fix section keyword |
+       | field_N duplicate | Bead 1 (tables) | Change field number |
+       | Mode not found | Bead 1 (tables) | Add to getModeResolver |
+       | Rate count wrong | Bead 4 (test) | Update expected counts |
+
+    2. CREATE fix beads (only for failed items):
+       ## Fix Beads (attempt <N>)
+       ### Fix Bead 1: <target file> — <specific change>
+       - File: <exact path from lender_context>
+       - Root cause: <from QC analysis>
+       - Fix: <specific code change>
+
+    3. SPAWN parser-dev with fix beads:
+       subagent_type: "parser-dev"
+       Prompt includes:
+       - Memory-resolved paths (do NOT search)
+       - QC failure details
+       - Fix beads with specific instructions
+       - "Only fix listed issues — do NOT change working code"
+       - Rebuild after fixes
+
+    4. RE-RUN QC (spawn parser-qc again)
+
+    5. If PASS → break, go to Step 7
+       If FAIL → continue loop
+
+    Emit per retry:
+    source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
+    emit_pipeline_retry <attempt>
+```
+
+**If still failing after 3 attempts:**
+Escalate to user with full diagnostic. Write failure report:
+```bash
+mkdir -p docs/changes/<JIRA_KEY>
+```
+Append failure details to beads_plan.md.
+
+---
+
+## STEP 7 — Verification Test (MUST pass before finalize)
+
+**Output:**
+```
+[new-parser 6/8] Verification — running final test pass...
+```
+
+```bash
+source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
+emit_pipeline_phase "verify"
+```
+
+Run BOTH tests together:
+```bash
+cd /Users/trungthach/IdeaProjects/packs/loan
+mvn test -Dtest="AdjustmentParsersTest#test<LenderName>+RateParserTest#test<LenderName>" -Dratesheet.path=<RATESHEET_PATH> 2>&1 | tail -20
+```
+
+**If verification FAILS:**
+- Do NOT finalize
+- Go back to Step 6 retry loop
+
+**If verification PASSES:**
+- Continue to Step 8
+
+---
+
+## STEP 8 — Finalization
+
+**Output:**
+```
+[new-parser 7/8] Finalizing...
+```
+
+### 8.1 Accept Expectations
 ```bash
 cd /Users/trungthach/IdeaProjects/packs/loan
 mvn test -Dtest=AdjustmentParsersTest#test<LenderName> -Dratesheet.path=<PATH> -Daccept -Daccept.new.adj 2>&1 | tail -10
 ```
 
-2. **Update RateParserTest counts** (if new rate program added):
-   - Run rate test once to get actual counts from output:
-   ```bash
-   mvn test -Dtest=RateParserTest#test<LenderName> -Dratesheet.path=<PATH> 2>&1 | grep -E "hasSize|assertRatesCount|Expected|Actual"
-   ```
-   - Update `rateMap.keySet().hasSize(NEW_COUNT)` and `assertRatesCount(LenderType, NEW_COUNT)` in `RateParserTest.java`
-   - Re-run to confirm:
-   ```bash
-   mvn test -Dtest=RateParserTest#test<LenderName> -Dratesheet.path=<PATH> 2>&1 | tail -10
-   ```
+### 8.2 Update RateParserTest Counts (if new rate program)
+```bash
+mvn test -Dtest=RateParserTest#test<LenderName> -Dratesheet.path=<PATH> 2>&1 | grep -E "hasSize|assertRatesCount|Expected|Actual"
+```
+Update counts in RateParserTest.java, then re-run to confirm.
 
-3. **Copy ratesheet** (if not already in resources):
+### 8.3 Copy Ratesheet (if not already in resources)
 ```bash
 cp <RATESHEET_PATH> /Users/trungthach/IdeaProjects/packs/loan/src/test/resources/ratesheets/<lender_MMDD>.<ext>
 ```
 
-4. **Update RatesheetFiles.java** if new constant needed
+### 8.4 Update RatesheetFiles.java if new constant needed
 
-5. **Final verification — run BOTH tests** without custom ratesheet path:
+### 8.5 Final Verification — run BOTH tests without custom ratesheet path
 ```bash
 cd /Users/trungthach/IdeaProjects/packs/loan
 mvn test -Dtest="AdjustmentParsersTest#test<LenderName>+RateParserTest#test<LenderName>" 2>&1 | tail -20
 ```
 Both MUST show BUILD SUCCESS.
 
-5. **Report to user**:
+### 8.6 Summary Report
+
+**Output:**
 ```
-## Summary
+[new-parser 8/8] Complete!
+```
+
+```bash
+source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
+emit_pipeline_done
+```
+
+```
+## /new-parser Complete: <JIRA_KEY>
+
+### Pipeline Summary
+✓ Memory:     Loaded — <N> files indexed
+✓ BA:         specs.md created
+✓ Architect:  beads_plan.md created (Beads 1-5)
+✓ Dev:        <N> files changed, compile PASS
+✓ QC:         All tests passed [after <M> iterations]
+✓ Verify:     Both tests pass together
+✓ Finalize:   Expectations accepted, ratesheet copied
 
 ### Agent Team Results
-- BA Lead: Analyzed <JIRA_KEY>, identified <N> subtasks
+- BA Lead: Analyzed <JIRA_KEY>, identified <N> tables, <N> products
+- Architect: Decomposed into <N> beads
 - Dev Lead: Modified <N> files, added <N> tables, <N> rate programs, <N> validation rules
 - QC Lead: All <N> tests passed [after <M> iterations]
 
 ### Files Changed
 - <file>: <summary>
 
+### Artifacts
+docs/changes/<JIRA_KEY>/
+  - specs.md
+  - beads_plan.md
+
 ### Ready for commit
 All tests passing. Run `/commit` when ready.
 ```
+
+---
+
+## Optimization Rules (Always Enforced)
+
+1. **Memory-First**: Always check `infrastructure_index.md` before searching. Never run broad `find` or `grep -r` when memory has the answer.
+
+2. **No Re-reads**: specs.md and beads_plan.md written earlier stay in context — never re-read in later steps. Files read by BA don't need re-reading by Dev if paths are passed.
+
+3. **Targeted Agents**: Always pass memory-resolved file paths to agents with "do NOT search" instruction. This saves 30-50% of agent tokens.
+
+4. **Beads over Blob**: Dev agent gets ordered beads with exact file paths and acceptance criteria. Never send flat "implement these subtasks" prompts.
+
+5. **Beads-Based Retry**: When QC fails, map failure to specific bead → create targeted fix beads. Never send vague "fix QC failures" to Dev.
+
+6. **Verify Before Finalize**: Always run verification test (Step 7) after QC passes. Flow: Dev → QC → Verify → Finalize.
+
+7. **Use Dedicated Agents**: Spawn `parser-ba`, `parser-dev`, `parser-qc` agents — not `general-purpose`. They have domain-specific knowledge baked in.
+
+8. **Cache Everything**: Lender paths, field numbers, test method names — cache on first lookup in `lender_context`, reuse across all steps.
+
+9. **Self-Correcting Compile**: Dev agent retries compile up to 3 times before reporting failure. Don't escalate build errors that can be auto-fixed.
