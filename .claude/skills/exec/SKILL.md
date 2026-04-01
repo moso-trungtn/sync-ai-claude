@@ -9,11 +9,54 @@ allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Agent
 
 Orchestrates the full development pipeline for a GWT Java Jira ticket.
 
+---
+
+## DASHBOARD INTEGRATION
+
+Source the emit helper at the start and emit status events throughout:
+
+```bash
+source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
+```
+
+**Key emit points (MUST call these):**
+
+| When | Command |
+|------|---------|
+| Skill starts | `emit_reset && emit_pipeline_start "exec"` |
+| Jira key known | `emit_meta "<KEY>" "" "<ACTION>"` |
+| Memory loading | `emit_agent_start "memory" "Loading project memories"` |
+| Memory loaded | `emit_agent_complete "memory"` |
+| BA starts | `emit_pipeline_phase "ba" && emit_agent_start "ba" "Fetching ticket"` |
+| BA investigating | `emit_agent_step "ba" "Investigating codebase"` |
+| BA done | `emit_agent_complete "ba"` |
+| UX starts | `emit_pipeline_phase "ux" && emit_agent_start "ux" "Analyzing UI"` |
+| UX skipped | `emit_agent_step "ux" "SKIPPED (server-only)"` |
+| UX done | `emit_agent_complete "ux"` |
+| Dev Lead starts | `emit_pipeline_phase "dev-lead" && emit_agent_start "dev-lead" "Decomposing beads"` |
+| Dev Lead bead | `emit_agent_subtask "dev-lead" "Bead N" "pending" "<description>"` |
+| Dev Lead done | `emit_agent_complete "dev-lead"` |
+| Dev starts | `emit_pipeline_phase "dev" && emit_agent_start "dev" "Implementing beads"` |
+| Dev bead progress | `emit_agent_step "dev" "Bead N: <description>"` |
+| Dev file modified | `emit_agent_file "dev" "<filename>" "modified"` |
+| Dev bead done | `emit_agent_subtask "dev" "Bead N" "completed" "<summary>"` |
+| Dev compiling | `emit_agent_step "dev" "Compiling..."` |
+| Dev compile pass | `emit_agent_test "dev" "Compile" "PASS" "BUILD SUCCESS"` |
+| Dev compile fail | `emit_agent_test "dev" "Compile" "FAIL" "<error>"` |
+| Dev retry | `emit_pipeline_retry N` |
+| Dev done | `emit_agent_complete "dev"` |
+| DevOps starts | `emit_pipeline_phase "devops" && emit_agent_start "devops" "Writing PR description"` |
+| DevOps done | `emit_agent_complete "devops"` |
+| All done | `emit_pipeline_done` |
+
+---
+
 ## First Run Check
 
 **Before doing anything else**, verify the environment is configured:
 
 ```bash
+source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh && emit_reset
 echo "WS=${MOSO_WORKSPACE:-MISSING} | MVN=${MAVEN_CMD:-MISSING} | JIRA=${JIRA_EMAIL:-MISSING} | TOKEN=${JIRA_API_TOKEN:-MISSING}"
 ```
 
@@ -69,7 +112,7 @@ Then restart Claude Code and retry.
 **If NOT a code task, output and stop:**
 ```
 /exec: This looks like a data/report request, not a code change task.
-/working only implements GWT Java code changes.
+/exec only implements GWT Java code changes.
 
 For data exports and reports, use the application directly or contact the relevant team.
 If there is a bug in the report code itself, describe the specific Java class or behavior to fix.
@@ -106,6 +149,12 @@ If there is a bug in the report code itself, describe the specific Java class or
    ```
    Then stop.
 
+After resolving the key:
+```bash
+source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
+emit_pipeline_start "exec" && emit_meta "<ISSUE_KEY>" "" ""
+```
+
 ---
 
 ## STEP 0 — Memory Check
@@ -113,6 +162,11 @@ If there is a bug in the report code itself, describe the specific Java class or
 **Output:**
 ```
 [exec 0/5] Checking project memories...
+```
+
+```bash
+source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
+emit_agent_start "memory" "Loading project memories"
 ```
 
 Read both memory files in parallel:
@@ -149,6 +203,11 @@ If total differs by more than 15 from `project_structure.md` total → rescan be
 [exec 0/5] ✓ Memories loaded — <N> Java files indexed
 ```
 
+```bash
+source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
+emit_agent_complete "memory"
+```
+
 Memory is now your **architectural map** for all subsequent steps.
 
 ### Memory-First Rule (ALWAYS enforced from here on)
@@ -176,6 +235,11 @@ If a keyword maps to a section in `infrastructure_index.md` → read those files
 [exec 1/5] BA — Fetching ticket <ISSUE_KEY>...
 ```
 
+```bash
+source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
+emit_pipeline_phase "ba" && emit_agent_start "ba" "Fetching ticket <ISSUE_KEY>"
+```
+
 ### 1.1 Fetch Jira Ticket (skip if chat-context mode)
 
 **If ISSUE_KEY starts with `CHAT-`** (derived from conversation) → skip 1.1 and 1.2, go directly to 1.3 using the synthesized task description as the problem statement.
@@ -187,6 +251,11 @@ curl -s -L -u "$JIRA_EMAIL:$JIRA_API_TOKEN" \
 ```
 
 Parse: summary, full description (wiki markup), all comments.
+
+```bash
+source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
+emit_meta "<ISSUE_KEY>" "" "<ACTION_TYPE>"
+```
 
 ### 1.2 Download Image Attachments (skip if chat-context mode)
 
@@ -205,6 +274,12 @@ Download all images in one chained command, then read them with the Read tool in
 ```
 [exec 1/5] BA — Investigating codebase (memory-first lookup)...
 ```
+
+```bash
+source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
+emit_agent_step "ba" "Investigating codebase (memory-first)"
+```
+
 For each keyword matched → output one line: `  → <ClassName>: <path>`
 
 **Step A — Check infrastructure_index.md (already loaded in STEP 0):**
@@ -279,16 +354,37 @@ Create `docs/changes/<ISSUE_KEY>/specs.md`:
 <from ticket>
 ```
 
+```bash
+source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
+emit_agent_complete "ba"
+```
+
 ---
 
 ## STEP 2 — UX Agent: Analyze UI & Write Design
 
 **Only run this step if the ticket has `[client]` changes.**
-If server/shared only → output `[exec 2/5] UX — SKIPPED (server-only)` and go to STEP 3.
+
+```bash
+source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
+emit_pipeline_phase "ux"
+```
+
+If server/shared only:
+```
+[exec 2/5] UX — SKIPPED (server-only)
+```
+```bash
+emit_agent_step "ux" "SKIPPED (server-only)"
+```
+Go to STEP 3.
 
 **Output (if client changes):**
 ```
 [exec 2/5] UX — Analyzing UI patterns...
+```
+```bash
+emit_agent_start "ux" "Analyzing UI patterns"
 ```
 
 ### 2.1 Read Existing UI Code
@@ -337,6 +433,11 @@ Create `docs/changes/<ISSUE_KEY>/ui_design_refine.md`:
 <what to validate on submit vs on change>
 ```
 
+```bash
+source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
+emit_agent_complete "ux"
+```
+
 ---
 
 ## STEP 3 — Dev Lead Agent: Beads Decomposition
@@ -344,6 +445,11 @@ Create `docs/changes/<ISSUE_KEY>/ui_design_refine.md`:
 **Output:**
 ```
 [exec 3/5] Dev Lead — Decomposing into beads...
+```
+
+```bash
+source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
+emit_pipeline_phase "dev-lead" && emit_agent_start "dev-lead" "Decomposing into beads"
 ```
 
 ### 3.1 Read All Artifacts
@@ -367,6 +473,15 @@ Beads are **atomic, dependency-ordered tasks**. Always decompose in this order:
 | **Bead 4** | `[client]` | Client UI / Presenter — forms, views, inputs, watchers, submit handlers |
 
 **Skip beads that have no changes** (e.g., server-only ticket → skip Bead 4).
+
+Emit each bead:
+```bash
+source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
+emit_agent_subtask "dev-lead" "Bead 1: Shared DTO" "pending" "<description>"
+emit_agent_subtask "dev-lead" "Bead 2: RPC Interface" "pending" "<description>"
+emit_agent_subtask "dev-lead" "Bead 3: Server Impl" "pending" "<description>"
+emit_agent_subtask "dev-lead" "Bead 4: Client UI" "pending" "<description>"
+```
 
 ### 3.3 Write beads_plan.md
 
@@ -409,6 +524,11 @@ Create `docs/changes/<ISSUE_KEY>/beads_plan.md`:
 <files outside scope>
 ```
 
+```bash
+source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
+emit_agent_complete "dev-lead"
+```
+
 ---
 
 ## STEP 4 — Dev Agent (The Surgeon): Targeted Implement + Self-Correct
@@ -416,6 +536,11 @@ Create `docs/changes/<ISSUE_KEY>/beads_plan.md`:
 **Output:**
 ```
 [exec 4/5] Dev — Reading <N> target files...
+```
+
+```bash
+source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
+emit_pipeline_phase "dev" && emit_agent_start "dev" "Reading target files"
 ```
 
 ### 4.1 Read Target Files Directly
@@ -438,15 +563,26 @@ Do NOT create a new branch. The user manages branches and commits manually.
 
 Work through `beads_plan.md` in dependency order: Bead 1 → 2 → 3 → 4.
 
-**For each bead, output before starting:**
+**For each bead, output and emit before starting:**
 ```
 [exec 4/5] Dev — Bead N: <description> (<filename>)
+```
+```bash
+source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
+emit_agent_step "dev" "Bead N: <description>"
 ```
 
 **For each bead task:**
 1. Read the file to modify (already read in 4.1 — use that, do NOT re-read unless file was not in target list)
 2. Implement the change following the referenced pattern
 3. Mark the task as `[x]` in beads_plan.md
+
+**After completing each bead:**
+```bash
+source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
+emit_agent_subtask "dev" "Bead N" "completed" "<summary of changes>"
+emit_agent_file "dev" "<filename>" "modified"
+```
 
 **Key implementation rules:**
 - New entity field: `public static final Field<T> field_name = new Field<>("field_name", Type.instance());`
@@ -464,17 +600,38 @@ Work through `beads_plan.md` in dependency order: Bead 1 → 2 → 3 → 4.
 ```
 
 ```bash
+source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
+emit_agent_step "dev" "Compiling..."
+```
+
+```bash
 cd $MOSO_WORKSPACE/moso
 $MAVEN_CMD compile -q 2>&1 | tail -30
 ```
 
-**If compile FAILS** → output `[exec 4/5] Dev — Compile FAILED (attempt N/3) — fixing...` then:
+**If compile FAILS:**
+```
+[exec 4/5] Dev — Compile FAILED (attempt N/3) — fixing...
+```
+```bash
+source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
+emit_agent_test "dev" "Compile" "FAIL" "<error summary>"
+emit_pipeline_retry N
+```
 1. Read the full error output — identify the exact file, line, and error type
 2. Fix the specific error (wrong import? missing method? type mismatch?)
 3. Re-run compile
 4. Repeat up to **3 times** — if still failing after 3 attempts, stop and report the blocker
 
-**If compile PASSES** → output `[exec 4/5] Dev — ✓ Compile PASS` then proceed to Step 5.
+**If compile PASSES:**
+```
+[exec 4/5] Dev — ✓ Compile PASS
+```
+```bash
+source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
+emit_agent_test "dev" "Compile" "PASS" "BUILD SUCCESS"
+emit_agent_complete "dev"
+```
 
 ---
 
@@ -483,6 +640,11 @@ $MAVEN_CMD compile -q 2>&1 | tail -30
 **Output:**
 ```
 [exec 5/5] DevOps — Writing PR description...
+```
+
+```bash
+source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
+emit_pipeline_phase "devops" && emit_agent_start "devops" "Writing PR description"
 ```
 
 ### 5.1 Review What Was Built
@@ -523,12 +685,19 @@ Create `docs/changes/<ISSUE_KEY>/pr_description.md`:
 
 ### 5.3 Final Report
 
+```bash
+source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
+emit_agent_complete "devops"
+emit_pipeline_done
+```
+
 Output to user:
 
 ```
 ## /exec Complete: <ISSUE_KEY>
 
 ### Pipeline Summary
+✓ Memory:    Loaded — <N> Java files indexed
 ✓ BA:        specs.md created
 ✓ UX:        ui_design_refine.md created / SKIPPED (server-only)
 ✓ Dev Lead:  beads_plan.md created (Beads 1-4)
@@ -565,3 +734,5 @@ Ready for manual review and merge.
 6. **No Branch**: Do NOT create a new branch. The user manages branches and commits manually.
 
 7. **Index Update**: After creating a new Java class/Op → append it to the correct section in `infrastructure_index.md` before finishing STEP 4.
+
+8. **Dashboard Emit**: Always emit status events at phase transitions, agent start/complete, test results, and retries. This keeps the live dashboard in sync.
