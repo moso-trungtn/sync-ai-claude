@@ -1,15 +1,15 @@
 ---
 name: new-parser
-description: Agent team for adding new lender parsers, rate programs, adjustments, or matrices. Orchestrates BA Lead, Dev Lead, and QC Lead agents.
+description: Smart agent team for adding new lender parsers. Learns from past builds, uses pricing domain knowledge, finds similar lenders as templates, and prevents known QC failures. Gets smarter with every parser built.
 argument-hint: [JIRA_KEY or URL] (optional)
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Agent, mcp__claude_ai_Atlassian__getJiraIssue, mcp__claude_ai_Atlassian__searchJiraIssuesUsingJql
 ---
 
-# New Parser Agent Team — Orchestrator
+# New Parser Agent Team — Smart Orchestrator
 
-You are the **Orchestrator** for a multi-agent pipeline that adds new lender parsers, rate programs, adjustments, or matrices.
+You are a **smart orchestrator** that builds new lender parsers. You learn from every build, understand pricing domain patterns, find similar lenders as templates, and prevent known mistakes.
 
-Pipeline flow: **Memory → BA → User Confirm → Architect (Beads) → Dev (Surgeon) → QC → Verify → Finalize**
+Pipeline flow: **Knowledge Load → BA (domain-aware) → User Confirm → Architect (template-guided beads) → Dev (surgeon + pitfall prevention) → QC → Verify → Learn → Finalize**
 
 ---
 
@@ -21,144 +21,285 @@ PROJECT_ROOT = "/Users/trungthach/IdeaProjects"
 MOSO_PRICING = "/Users/trungthach/IdeaProjects/moso-pricing"
 PACKS_LOAN = "/Users/trungthach/IdeaProjects/packs/loan"
 MOSO_MEMORY_DIR = "/Users/trungthach/.claude/projects/-Users-trungthach-IdeaProjects/memory"
+BUILD_COOKBOOK = "/Users/trungthach/.claude/projects/-Users-trungthach-IdeaProjects/memory/parser_build_cookbook.md"
+PRICING_KNOWLEDGE = "/Users/trungthach/.claude/projects/-Users-trungthach-IdeaProjects/memory/parser_pricing_knowledge.md"
 ```
 
 ---
 
 ## DASHBOARD INTEGRATION
 
-Source the emit helper at the start and emit status events throughout:
-
 ```bash
 source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
 ```
 
-**Key emit points (MUST call these):**
-
 | When | Command |
 |------|---------|
-| Skill starts | `emit_reset && emit_pipeline_start "ba-lead"` |
-| Jira key known | `emit_meta "<KEY>" "<LENDER>" "<ACTION>"` |
-| BA Lead starts | `emit_agent_start "ba-lead" "Fetching Jira task"` |
-| BA Lead progress | `emit_agent_step "ba-lead" "Analyzing screenshots"` |
-| BA finds subtask | `emit_agent_subtask "ba-lead" "Update Tables" "pending" "Add USDA tables"` |
-| BA Lead done | `emit_agent_complete "ba-lead"` |
-| Waiting for user | `emit_pipeline_phase "user-confirm"` |
-| User confirmed | `emit_pipeline_phase "architect"` |
-| Architect done | `emit_pipeline_phase "dev-lead"` |
-| Dev Lead starts | `emit_agent_start "dev-lead" "Implementing Bead 1"` |
-| Dev modifies file | `emit_agent_file "dev-lead" "PennyMacTables.java" "modified"` |
-| Dev subtask done | `emit_agent_subtask "dev-lead" "Tables.java" "completed" "Added 3 tables"` |
-| Dev Lead done | `emit_agent_complete "dev-lead"` |
-| QC Lead starts | `emit_pipeline_phase "qc-lead" && emit_agent_start "qc-lead" "Running tests"` |
-| QC test result | `emit_agent_test "qc-lead" "Adj Parser" "PASS" "All expectations match"` |
-| QC done | `emit_agent_complete "qc-lead"` |
-| QC fails | `emit_agent_fail "qc-lead" "2 tests failed"` |
-| Verification | `emit_pipeline_phase "verify"` |
+| Skill starts | `emit_reset && emit_pipeline_start "new-parser"` |
+| Knowledge loaded | `emit_agent_step "new-parser" "Knowledge loaded: N lenders in cookbook"` |
+| Similar lender found | `emit_agent_step "new-parser" "Similar lender: <name> (N% match)"` |
+| BA starts | `emit_pipeline_phase "ba" && emit_agent_start "ba" "Analyzing task"` |
+| BA done | `emit_agent_complete "ba"` |
+| User confirm | `emit_pipeline_phase "user-confirm"` |
+| Architect starts | `emit_pipeline_phase "architect"` |
+| Architect bead | `emit_agent_subtask "architect" "Bead N" "pending" "<desc>"` |
+| Dev starts | `emit_pipeline_phase "dev" && emit_agent_start "dev" "Implementing"` |
+| Dev bead done | `emit_agent_subtask "dev" "Bead N" "completed" "<summary>"` |
+| Dev file | `emit_agent_file "dev" "<file>" "modified"` |
+| QC starts | `emit_pipeline_phase "qc" && emit_agent_start "qc" "Testing"` |
+| QC test | `emit_agent_test "qc" "<test>" "<PASS/FAIL>" "<details>"` |
+| QC done | `emit_agent_complete "qc"` |
+| Verify | `emit_pipeline_phase "verify"` |
+| Learn | `emit_agent_step "new-parser" "Cookbook updated: <lender>"` |
 | Retry | `emit_pipeline_retry N` |
-| All done | `emit_pipeline_done` |
-
-**Tell agents to emit too:** Include emit instructions in each agent's prompt so they report their own progress.
+| Done | `emit_pipeline_done` |
 
 ---
 
-## STEP 0 — Environment Check & Memory Load
+## KNOWLEDGE SYSTEM
 
-### 0.1 Environment Verification
+### Three Knowledge Files
+
+#### 1. Build Cookbook (`parser_build_cookbook.md`)
+Per-lender build history — grows after every successful build:
+
+```markdown
+# Parser Build Cookbook
+
+## PennyMac
+- **type**: Conventional, QM
+- **paths**: Tables=`<path>`, Rate=`<path>`, Adj=`<path>`
+- **tables**: 8 total — 3 FICO×LTV, 2 condition, 3 validate
+- **table_details**:
+  - purchaseFicoLtv: ConditionTableInfo, FICO rows 780→620, LTV cols 60→97, gate: PM
+  - refinanceFicoLtv: ConditionTableInfo, FICO rows 780→620, LTV cols 60→97, gate: ALL_REFINANCE
+  - cashOutFicoLtv: ConditionTableInfo, FICO rows 780→620, LTV cols 60→80, gate: CASH_OUT
+  - stateAdj: ConditionTableInfo, state conditions
+  - propertyAdj: ConditionTableInfo, property type conditions
+- **rate_products**: 6 — fixed(15), fixed(20), fixed(25), fixed(30), arm(5,1), arm(7,1)
+- **lock_periods**: [15, 30, 45, 60]
+- **adj_sections**: split by "Pricing Adjustments", then "LTV Adjustment"
+- **adj_keyword**: "Pricing Adjustments"
+- **modes**: [PURCHASE, RATE_TERM, CASH_OUT]
+- **field_range**: field_1 through field_8
+- **qc_issues**: ["field_5 duplicate on first attempt — was already used by cashOutFicoLtv"]
+- **similar_to**: ["USBank", "WellsFargo"]
+- **build_date**: 2026-03-15
+- **build_tiers**: [dev: 2 beads, qc: 1 retry]
+
+## LoganFinance
+- **type**: NonQM
+- **tables**: 5 total — 2 FICO×LTV, 1 DSCR, 2 validate
+- **rate_products**: 4 — fixed(30), arm(5,1), arm(7,1), arm(10,1)
+- **adj_sections**: split by "Base Price Adjustments"
+- **special**: DSCR table uses loanAmount ranges instead of LTV
+- **qc_issues**: ["crawlLabels count off by 1 — forgot sentinel rows"]
+- **similar_to**: ["AngelOak", "Verus"]
+```
+
+#### 2. Pricing Domain Knowledge (`parser_pricing_knowledge.md`)
+Accumulated understanding of pricing patterns:
+
+```markdown
+# Pricing Domain Knowledge
+
+## Table Patterns by Loan Type
+
+### Conventional (QM)
+- **Always has**: FICO×LTV matrix (per purpose: Purchase, RateTerm, CashOut)
+- **Usually has**: State adjustment, Property type adj, Subordinate financing
+- **Lock periods**: typically [15, 30, 45, 60]
+- **FICO ranges**: 780→620 (standard), some go to 580
+- **LTV ranges**: 60→97 (Purchase), 60→90 (CashOut)
+- **Modes**: PURCHASE, RATE_TERM, CASH_OUT (minimum)
+- **Rate products**: fixed(15,20,25,30) + ARM variants
+
+### NonQM
+- **Always has**: FICO×LTV matrix (wider ranges 500-780)
+- **Often has**: DSCR adjustment, Bank statement months adj, Prepay penalty adj
+- **Lock periods**: typically [30, 45, 60]
+- **FICO ranges**: 780→500 (wider than QM)
+- **LTV ranges**: varies widely, often up to 80 max
+- **Special**: 999.0 sentinel more common, more ValidateCalculator rules
+- **Modes**: often just DEFAULT or by program name
+
+### FHA
+- **Always has**: FICO×LTV matrix with FHA_STREAMLINE column
+- **Specific**: colRange includes FHA_STREAMLINE condition
+- **Lock periods**: [15, 30, 45, 60]
+- **Modes**: PURCHASE, RATE_TERM, FHA_STREAMLINE
+
+### VA
+- **Always has**: FICO×LTV matrix with IRRRL condition
+- **Specific**: VA funding fee adjustment, IRRRL streamline
+- **Modes**: PURCHASE, RATE_TERM, IRRRL, CASH_OUT
+
+### USDA
+- **Similar to**: Conventional but fewer LTV columns
+- **Specific**: Rural property restrictions
+- **Modes**: PURCHASE, RATE_TERM (usually no CashOut)
+
+### High Balance / Jumbo
+- **Always has**: Loan amount ranges in conditions
+- **Specific**: loanAmount() ranges for tier breakpoints
+- **Higher FICO requirements**: usually 700+ minimum
+
+## Common Adjustment Table Types
+
+### FICO × LTV Matrix
+- Most common table type across all loan types
+- Rows: FICO ranges (descending, sentinels: MAX_VALUE, MIN_VALUE)
+- Cols: LTV ranges (ascending, sentinels: MIN_VALUE) or loan type conditions
+- Use ConditionTableInfo with fico().crawlNote() rows
+- NEVER use RangeTableInfo for FICO tables
+
+### Condition List
+- Single-column adjustments based on conditions
+- Examples: State, Property type, Occupancy, Subordinate financing
+- Use ConditionTableInfo with condition.setNote() rows
+
+### Loan Amount Tiers
+- Used in Jumbo/NonQM for amount-based adjustments
+- Use loanAmount(min, max) ranges
+- Often combined with FICO or LTV
+
+## Common Mistakes (Learned from QC)
+
+### Frequency: Very Common (>30% of first attempts)
+1. **Forgetting allTables()**: Table defined but not added to allTables() → invisible to calculator
+2. **FICO rows not descending**: Copy-paste from ratesheet which is ascending → must reverse
+3. **crawlLabels count mismatch**: Must be rowRange count minus 2 (exclude MAX/MIN sentinels)
+4. **field_N reuse**: Must grep existing fields before choosing next number
+
+### Frequency: Common (10-30%)
+5. **colRange count mismatch**: Must match actual value columns in ratesheet
+6. **Mode not in resolver**: Adding .mode() to rate parser without updating getModeResolver()
+7. **Wrong condition gate**: Using CONVENTIONAL when should be NON_JUMBO (includes HighBalance)
+
+### Frequency: Occasional (<10%)
+8. **Numeric colRange for FICO table**: Must use fico() ranges, not 0d/85d/95d
+9. **Missing ValidateCalculator**: Eligibility rules from matrix not implemented
+10. **Sheet name mismatch**: Must match EXACT tab name in ratesheet
+```
+
+#### 3. Infrastructure Index + Project Structure (existing memory)
+Standard memory-first file resolution.
+
+---
+
+## STEP 0 — Knowledge Load
+
+**Output:**
+```
+[new-parser 0/8] Loading knowledge base...
+```
+
+```bash
+source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh && emit_reset
+emit_pipeline_start "new-parser"
+```
+
+Read in parallel:
+```
+$MOSO_MEMORY_DIR/project_structure.md
+$MOSO_MEMORY_DIR/infrastructure_index.md
+$BUILD_COOKBOOK
+$PRICING_KNOWLEDGE
+```
+
+**If cookbook/pricing files missing** → create them with seed content (use the templates from the KNOWLEDGE SYSTEM section above as initial content). This is the first run — the agent starts learning from here.
+
+**Output:**
+```
+[new-parser 0/8] ✓ Knowledge loaded — cookbook: <N> lenders, pricing: <N> loan types
+```
+
+```bash
+emit_agent_step "new-parser" "Knowledge loaded: <N> lenders in cookbook"
+```
+
+### 0.2 Input Resolution
+
+If `$ARGUMENTS` contains a Jira key or URL, extract it. Otherwise ask.
+
+### 0.3 Environment Check
 
 ```bash
 echo "JIRA_EMAIL=${JIRA_EMAIL:-MISSING} | JIRA_TOKEN=${JIRA_API_TOKEN:-MISSING}"
 ```
 
-**If any value is `MISSING` → stop immediately:**
-```
-/new-parser: Environment not configured.
-Set JIRA_EMAIL and JIRA_API_TOKEN in ~/.claude/settings.json env vars.
-```
-
-### 0.2 Input Resolution
-
-If `$ARGUMENTS` contains a Jira key or URL, extract it. Otherwise ask:
-> What is the Jira task key? (e.g., MOSO-14658 or full URL)
-
-Extract the key (e.g., `MOSO-14658` from URL `https://mosoteam.atlassian.net/browse/MOSO-14658`).
-
-### 0.3 Memory Load
-
-**Output:**
-```
-[new-parser 0/8] Loading project memories...
-```
-
-```bash
-source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh && emit_reset
-emit_pipeline_start "ba-lead" && emit_meta "<KEY>" "" ""
-```
-
-Read both memory files in parallel:
-```
-$MOSO_MEMORY_DIR/project_structure.md
-$MOSO_MEMORY_DIR/infrastructure_index.md
-```
-
-**If either file is missing** → fall back to `lender-info.sh` for lookups (legacy mode):
-```
-[new-parser 0/8] ⚠ Memories not found — using legacy lookup mode
-```
-
-**If both files exist** → memory is your architectural map:
-```
-[new-parser 0/8] ✓ Memories loaded — memory-first mode active
-```
-
-### Memory-First Rule (enforced from here on)
-
-When memory is loaded, you MUST follow this lookup order for every class/file:
-
-```
-1. infrastructure_index.md  ← check here first, every time
-2. project_structure.md     ← module/package layout if index has no match
-3. targeted find -name      ← only if NOT found in memory (single module)
-4. lender-info.sh           ← last resort fallback
-```
-
-**NEVER skip to step 3 or 4 without exhausting steps 1 and 2 first.**
-**NEVER run broad `find` or `grep -r` across the whole workspace.**
-
 ---
 
-## STEP 1 — BA Agent: Fetch Ticket & Write specs.md
+## STEP 1 — Smart BA Agent: Domain-Aware Analysis
 
 **Output:**
 ```
-[new-parser 1/8] BA — Fetching ticket <JIRA_KEY>...
+[new-parser 1/8] BA — Analyzing ticket (domain-aware)...
 ```
 
-### Emit:
 ```bash
 source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
-emit_agent_start "ba-lead" "Fetching Jira task"
+emit_pipeline_phase "ba" && emit_agent_start "ba" "Analyzing ticket"
 ```
 
-### Spawn BA Lead agent (foreground)
+### 1.1 Pre-Analysis: Classify Loan Type & Find Similar Lenders
 
-Spawn with: `subagent_type: "parser-ba"`, description: `"BA Lead: analyze parser task"`
-
-**Prompt template** (fill in `<JIRA_KEY>` and memory context):
+**Before spawning BA agent**, the orchestrator does a quick classification from the Jira title:
 
 ```
-You are the BA Lead for a mortgage ratesheet parser team. Your job is to investigate a Jira task and produce a structured task breakdown.
+1. Extract loan type from title: [QM], [NonQM], FHA, VA, USDA, Jumbo
+2. Search cookbook for lenders with same type
+3. Rank by similarity:
+   - Same loan type = base match
+   - Same action type (add program vs new parser) = bonus
+   - Similar table count = bonus
+4. Pick top 1-2 similar lenders as references
+```
+
+```bash
+emit_agent_step "new-parser" "Similar lender: <name> (<type>, <N> tables)"
+```
+
+### 1.2 Spawn BA Agent with Domain Context
+
+Spawn with: `subagent_type: "parser-ba"`, description: `"BA: domain-aware parser analysis"`
+
+**Prompt template** — includes pricing knowledge + similar lender + cookbook hints:
+
+```
+You are the BA Lead for a mortgage ratesheet parser team. You have deep pricing domain knowledge.
 
 ## Dashboard Reporting
-You MUST emit status updates at each step:
 ```bash
 source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
-emit_agent_step "ba-lead" "Fetching Jira task"
+emit_agent_step "ba" "<step description>"
 ```
-Emit at: start of each step, when you find key info, when you identify subtasks.
 
 ## Your Task
 Analyze Jira issue <JIRA_KEY> and produce a development plan.
+
+## Pricing Domain Knowledge
+<PASTE RELEVANT SECTION from parser_pricing_knowledge.md based on loan type>
+
+For example, if this is a Conventional QM lender:
+- Always expect: FICO×LTV matrices per purpose, State adj, Property adj
+- Standard FICO ranges: 780→620
+- Standard lock periods: 15, 30, 45, 60
+- Standard modes: PURCHASE, RATE_TERM, CASH_OUT
+
+Use this knowledge to VALIDATE what you see in the ratesheet. If the ratesheet
+is missing something that's "always has" for this loan type, flag it as a risk.
+
+## Similar Lender Reference
+<IF SIMILAR LENDER FOUND>
+The most similar lender in our cookbook is **<similar_lender>** (<type>):
+- Tables: <table_details from cookbook>
+- Rate products: <products>
+- Adj sections: <sections>
+- Modes: <modes>
+
+Use this as a TEMPLATE — expect similar structure. Note any differences.
+</IF>
 
 ## Step 1: Fetch Jira Task
 ```bash
@@ -166,154 +307,95 @@ curl -s -L -u "$JIRA_EMAIL:$JIRA_API_TOKEN" \
   "https://mosoteam.atlassian.net/rest/api/2/issue/<JIRA_KEY>?fields=summary,description,status,assignee,priority,attachment,comment,creator,created,updated,issuetype,labels,parent"
 ```
 
-Download ALL image attachments:
-```bash
-mkdir -p /tmp/jira-<JIRA_KEY>
-# For each attachment with mimeType starting with "image/":
-curl -s -L -u "$JIRA_EMAIL:$JIRA_API_TOKEN" \
-  -o "/tmp/jira-<JIRA_KEY>/<filename>" \
-  "https://mosoteam.atlassian.net/rest/api/2/attachment/content/<attachment_id>"
-```
-Also download non-image attachments (Excel, PDF ratesheets).
-Read all downloaded images with the Read tool to understand the visual content.
+Download ALL attachments (images + ratesheets). Read images with Read tool.
 
 ## Step 2: Parse Task Requirements
-From the Jira task, identify:
-- **QM or NonQM**: Look for [QM] or [NonQM] in title
-- **Lender Name**: Extract from title (map to CamelCase: "Penny Mac" → "PennyMac")
-- **Action Type**: "Add program" / "Add adjustment" / "Add matrix" / "New parser" / "Update"
-- **Loan Type**: Conventional, FHA, VA, USDA, Jumbo, NonQM
-- **Rate Tables**: From screenshots — products, lock periods, categories
-- **Adjustment Tables**: From screenshots — table structure (FICO x LTV, misc conditions)
-- **Matrix/Eligibility**: Min FICO, Max LTV, eligible occupancy/property/purpose
+From the Jira task + your domain knowledge, identify:
+- **QM or NonQM**
+- **Lender Name** (CamelCase)
+- **Action Type**: Add program / Add adjustment / Add matrix / New parser
+- **Loan Type**: Use pricing knowledge to predict expected tables
+- **Rate Tables**: Compare against domain expectations
+- **Adjustment Tables**: Compare against domain expectations
+- **Matrix/Eligibility**: Compare against domain expectations
+- **Differences from similar lender**: What's unique about this one?
 
 ## Step 3: Research Existing Code — Memory First
 
-<IF MEMORY IS LOADED>
-## Pre-Resolved Paths from Memory
-The orchestrator has loaded project memory. Use these paths DIRECTLY — do NOT search:
-
-Check the infrastructure_index.md content provided below for the lender. If the lender is there, use those paths directly. If not, fall back to lender-info.sh.
-
-### Memory Content (infrastructure_index.md excerpt — parser section)
-<PASTE RELEVANT SECTION FROM infrastructure_index.md>
-
-### Memory Content (project_structure.md excerpt — packs/loan)
-<PASTE RELEVANT SECTION FROM project_structure.md>
-</IF MEMORY IS LOADED>
+<IF MEMORY LOADED>
+### Pre-Resolved Paths from Memory
+<PASTE RELEVANT infrastructure_index.md section>
+<PASTE RELEVANT project_structure.md section>
+Check these paths DIRECTLY — do NOT search.
+</IF>
 
 <IF LEGACY MODE>
-Run lender info lookup:
 ```bash
 cd /Users/trungthach/IdeaProjects/packs/loan && ./lender-info.sh <LenderName>
 ```
-</IF LEGACY MODE>
+</IF>
 
-Read the existing parser files (Tables, AdjustmentParser, RateParser) to understand:
-- What loan types already exist
-- What tables are defined
-- What the ModeResolver looks like
-- What field numbers are already used (find next available field_N)
-- What validation rules exist
-
-Read lender doc if it exists: `moso-pricing/docs/lenders/<lender>.md`
+Read the existing parser files. Compare against similar lender's structure.
 
 ## Step 4: Write specs.md
 
-Create `docs/changes/<JIRA_KEY>/specs.md`:
+Create `docs/changes/<JIRA_KEY>/specs.md` with:
+- Problem statement
+- Lender info
+- **Domain expectations**: what tables/products are expected for this loan type
+- **Ratesheet vs expectations**: what matches and what's different
+- **Similar lender comparison**: differences from template
+- Existing code status
+- Screenshots analysis
+- Key file paths
+- Risk assessment (including domain expectation mismatches)
+- Missing information
 
-```markdown
-# <JIRA_KEY>: <summary>
-
-## Problem
-<from ticket + screenshots>
-
-## Lender Info
-- **Lender**: <name> (LenderType: <type>)
-- **Action**: <add rate program / add adjustment / add matrix / new parser>
-- **Loan Type**: <type>
-- **QM/NonQM**: <QM or NonQM>
-
-## Existing Code Status
-- **Tables class**: <path> — <N> tables defined, fields used: field_1 through field_<N>
-- **Next available field**: field_<N+1>
-- **Adjustment parser**: <path>
-- **Rate parser**: <path>
-- **Current loan types**: <list>
-- **Current modes**: <list from ModeResolver>
-
-## Screenshots Analysis
-- **Rate table**: <description — products, lock periods, rate structure>
-- **Adjustment table**: <description — table type (FICO x LTV / condition list), rows, columns>
-- **Matrix**: <min FICO, max LTV, restrictions>
-
-## Key Files (from memory)
-<exact file paths for all parser files involved>
-
-## Risk Assessment
-- <any concerns, ambiguities, or things needing user clarification>
-
-## Missing Information
-- <anything not in the Jira task that we need to know>
-```
-
-Also return the full BA ANALYSIS output to the orchestrator (same format as specs.md but in the agent response).
+Return the full analysis to the orchestrator.
 ```
 
 ### After BA returns:
 
-**Emit:**
 ```bash
 source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
-emit_meta "<KEY>" "<LENDER>" "<ACTION>"
-emit_agent_complete "ba-lead"
+emit_agent_complete "ba"
 ```
 
-Cache the resolved paths:
-```
-lender_context = {
-  camelName: "<LenderName>",
-  tablesPath: "<path>",
-  rateParserPath: "<path>",
-  adjParserPath: "<path>",
-  nextField: "field_<N>",
-  isNonQM: true/false
-}
-```
+Cache lender_context with resolved paths.
 
 ---
 
 ## STEP 2 — User Confirmation
-
-**Output:**
-```
-[new-parser 2/8] Waiting for user confirmation...
-```
 
 ```bash
 source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
 emit_pipeline_phase "user-confirm"
 ```
 
-Show the user the BA Lead's specs.md and ask:
+Show specs.md summary + domain analysis:
 
-> **BA Lead Analysis:**
-> [paste specs.md summary]
+> **BA Analysis:**
+> [summary]
 >
-> Before Dev starts, I need:
-> 1. **Ratesheet file path** — where is the ratesheet? (or should I download it?)
-> 2. **Any corrections** to the BA's analysis?
-> 3. **Any concerns** or special requirements?
-
-Wait for user response. Collect the ratesheet path.
+> **Domain Expectations** (for <loan_type>):
+> - Expected tables: <list from pricing knowledge>
+> - Found in ratesheet: <list from BA>
+> - Missing: <any gaps>
+>
+> **Similar Lender**: <name> — <differences>
+>
+> Before Dev starts:
+> 1. **Ratesheet file path**?
+> 2. **Corrections** to analysis?
+> 3. **Concerns**?
 
 ---
 
-## STEP 3 — Architect: Beads Decomposition
+## STEP 3 — Architect: Template-Guided Beads
 
 **Output:**
 ```
-[new-parser 3/8] Architect — Decomposing into beads...
+[new-parser 3/8] Architect — Building beads from template...
 ```
 
 ```bash
@@ -321,550 +403,287 @@ source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
 emit_pipeline_phase "architect"
 ```
 
-The orchestrator (you) performs this step directly — no agent needed.
+### 3.1 Load Reference Implementation
 
-### 3.1 Read Key Files
+**If similar lender found in cookbook:**
+- Read the similar lender's Tables class (from cookbook.paths)
+- Use it as a TEMPLATE for bead structure
+- Note: "Copy structure from <similar>, adjust ranges from new ratesheet"
 
-Using paths from `lender_context`, read the actual parser files to verify the design is feasible:
-- Tables class (to confirm field numbers, existing tables)
-- Rate Parser (to confirm existing products/sheets)
-- Adjustment Parser (to confirm existing sections)
+**If no similar lender:**
+- Use pricing domain knowledge for the loan type as guide
+- Build beads from scratch based on BA analysis
 
-**Do NOT re-read if BA agent already read these and the content is in context.**
-
-### 3.2 Decompose into Beads
-
-Beads are **atomic, dependency-ordered tasks**. Always decompose in this order:
+### 3.2 Decompose into Beads (template-guided)
 
 | Bead | Layer | Description |
 |------|-------|-------------|
-| **Bead 1** | `[tables]` | Tables class — new table definitions, allTables(), calculators(), validations(), getModeResolver() |
-| **Bead 2** | `[rate]` | Rate Parser — new sheet constants, processPage() entries, products |
-| **Bead 3** | `[adj]` | Adjustment Parser — new section extraction, PageParser.make() calls |
-| **Bead 4** | `[test]` | Test files — update RateParserTest counts, verify AdjustmentParsersTest method exists |
-| **Bead 5** | `[docs]` | Lender documentation — update or create docs/lenders/<lender>.md |
-
-**Skip beads that have no changes.**
+| **Bead 1** | `[tables]` | Tables class — guided by similar lender template |
+| **Bead 2** | `[rate]` | Rate Parser — products from BA analysis |
+| **Bead 3** | `[adj]` | Adjustment Parser — section keywords from ratesheet |
+| **Bead 4** | `[test]` | Test files — expected counts |
+| **Bead 5** | `[docs]` | Documentation |
 
 ### 3.3 Write beads_plan.md
 
 Create `docs/changes/<JIRA_KEY>/beads_plan.md`:
 
+Include for each bead:
+- Exact file path (from lender_context)
+- Specific changes
+- **Template reference**: "Based on <similar_lender>'s <table>, adjust: <differences>"
+- **Pitfall warnings**: from pricing knowledge common mistakes section
+- Acceptance criteria
+
 ```markdown
 # Beads Plan: <JIRA_KEY>
 
-## Bead 1 — Tables Class [tables]
+## Reference Lender: <similar_lender> (from cookbook)
+
+## Pitfall Prevention (from pricing knowledge)
+- [ ] Verify field_N uniqueness before assigning
+- [ ] FICO rows descending (MAX_VALUE first)
+- [ ] crawlLabels count = rowRange count - 2
+- [ ] Every table in allTables() AND calculators()
+- [ ] Every .mode() in getModeResolver()
+- [ ] colRange count matches ratesheet columns
+
+## Bead 1 — Tables [tables]
 - [ ] 1.1 <tablesPath>: Add table definitions
-  - <tableName>: ConditionTableInfo, field_<N>, condition: <gate>
-    - Rows: <describe>
-    - Columns: <describe>
-  - [repeat for each table]
-  - Acceptance: tables compile, no duplicate fields
-
-- [ ] 1.2 <tablesPath>: Add to allTables() and calculators()
-  - TableCalculator for each table with gate condition
-  - Acceptance: all tables registered
-
-- [ ] 1.3 <tablesPath>: Add ValidateCalculator rules
-  - <rule descriptions>
-  - Acceptance: validation rules compile
-
-- [ ] 1.4 <tablesPath>: Update getModeResolver() (if needed)
-  - <new modes>
-  - Acceptance: all rate parser modes resolvable
+  - Template: copy structure from <similar_lender>'s Tables
+  - Adjust: FICO ranges from <ratesheet>, LTV ranges from <ratesheet>
+  - New field_N: start from field_<next_available>
+  ...
 
 ## Bead 2 — Rate Parser [rate]
-- [ ] 2.1 <rateParserPath>: Add sheet constant and processPage() entries
-  - Sheet: "<sheet tab name>"
-  - Products:
-    - getProduct(Category, fixed(30), LoanType, lockPeriod(30))
-    - [list all products]
-  - Acceptance: products compile, modes exist in resolver
+...
 
-## Bead 3 — Adjustment Parser [adj]
-- [ ] 3.1 <adjParserPath>: Add section extraction and PageParser.make()
-  - Keyword: "<section keyword>"
-  - Tables: <list of tables to parse>
-  - Acceptance: section extraction compiles
-
-## Bead 4 — Test Files [test]
-- [ ] 4.1 RateParserTest.java: Update expected counts
-  - Old: rateMap.keySet().hasSize(<OLD>), assertRatesCount(<LENDER>, <OLD>)
-  - New: TBD after implementation (QC will verify)
-  - Acceptance: test compiles
-
-- [ ] 4.2 AdjustmentParsersTest.java: Verify test method exists
-  - Method: test<LenderName>
-  - Acceptance: method exists, new tables auto-registered
-
-## Bead 5 — Documentation [docs]
-- [ ] 5.1 docs/lenders/<lender>.md: Document new tables, rates, validations
-  - Acceptance: doc created/updated
+## Bead 3 — Adj Parser [adj]
+- Template: <similar_lender> splits by "<keyword>"
+- This lender: check ratesheet for actual section headers
+...
 
 ## Repomix Target Files
-<exact file paths — used by Dev agent to read directly>
-- <tablesPath>
-- <rateParserPath>
-- <adjParserPath>
-- packs/loan/src/test/java/com/mvu/loan/RateParserTest.java
-- packs/loan/src/test/java/com/mvu/loan/AdjustmentParsersTest.java
-- moso-pricing/docs/lenders/<lender>.md
-
-## Do NOT Touch
-<files outside scope>
+<paths>
++ <similar_lender Tables path> (for reference only — DO NOT modify)
 ```
 
-Emit each bead as a subtask:
+Emit beads:
 ```bash
 source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
-emit_agent_subtask "architect" "Bead 1: Tables" "pending" "<N> tables, <N> validators"
-emit_agent_subtask "architect" "Bead 2: Rate Parser" "pending" "<N> products"
-emit_agent_subtask "architect" "Bead 3: Adj Parser" "pending" "<N> sections"
-emit_agent_subtask "architect" "Bead 4: Tests" "pending" "Update counts"
-emit_agent_subtask "architect" "Bead 5: Docs" "pending" "Lender doc"
+emit_agent_subtask "architect" "Bead 1" "pending" "<desc>"
 ```
 
 ---
 
-## STEP 4 — Dev Agent (The Surgeon): Targeted Implement + Self-Correct
+## STEP 4 — Dev Agent (Surgeon): Template-Guided + Pitfall Prevention
 
 **Output:**
 ```
-[new-parser 4/8] Dev — Reading <N> target files...
+[new-parser 4/8] Dev — Implementing with template guidance...
 ```
 
 ```bash
 source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
-emit_pipeline_phase "dev-lead"
-emit_agent_start "dev-lead" "Implementing beads"
+emit_pipeline_phase "dev" && emit_agent_start "dev" "Implementing beads"
 ```
 
-### Spawn Dev Lead agent (foreground)
+### Spawn Dev Agent
 
-Spawn with: `subagent_type: "parser-dev"`, description: `"Dev Lead: implement parser beads"`
+Spawn with: `subagent_type: "parser-dev"`, description: `"Dev: template-guided implementation"`
 
-**Prompt template** (fill in from specs.md, beads_plan.md, and lender_context):
+**Prompt includes these extra sections vs basic implementation:**
 
 ```
-You are the Dev Lead for a mortgage ratesheet parser team. Implement the changes described in the beads plan below.
+## Reference Implementation (READ FIRST, DO NOT MODIFY)
+<similar_lender>'s Tables class is at: <path>
+Read this file FIRST to understand the pattern. Then implement the new lender
+following the same structure, with adjustments from the beads plan.
 
-## Dashboard Reporting
-You MUST emit status updates as you work:
-```bash
-source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
-emit_agent_step "dev-lead" "Implementing Bead 1: Tables"
-emit_agent_subtask "dev-lead" "Tables.java" "running" "Adding tables"
-emit_agent_subtask "dev-lead" "Tables.java" "completed" "Added 3 tables"
-emit_agent_file "dev-lead" "<filename>" "modified"
-```
+## Pitfall Prevention Checklist
+Before completing EACH bead, verify:
+□ field_N is unique (grep existing fields: grep -o "field_[0-9]*" <tablesPath> | sort -u)
+□ FICO rows start with Double.MAX_VALUE (descending)
+□ LTV cols start with Double.MIN_VALUE (ascending)
+□ crawlLabels count = rowRange entries - 2
+□ Every table added to allTables()
+□ Every table has TableCalculator in calculators()
+□ Every .mode() exists in getModeResolver()
+□ colRange count matches ratesheet value columns
 
-## Memory-Resolved File Paths (do NOT search — use these directly)
-- Tables: <tablesPath>
-- RateParser: <rateParserPath>
-- AdjParser: <adjParserPath>
-- RateParserTest: packs/loan/src/test/java/com/mvu/loan/RateParserTest.java
-- AdjustmentParsersTest: packs/loan/src/test/java/com/mvu/loan/AdjustmentParsersTest.java
+## Known Issues from Similar Lenders
+<IF cookbook has qc_issues for similar lender>
+When building <similar_lender>, these QC issues occurred:
+<list qc_issues>
+Avoid making the same mistakes.
+</IF>
 
-## Rules
-- Do NOT search for files — paths are provided above
-- Read target files from the list above directly
-- Implement beads in dependency order: 1 → 2 → 3 → 4 → 5
-- Do NOT re-read files you have already read
-
-## Ratesheet Path
-<RATESHEET_PATH>
+## Memory-Resolved File Paths (do NOT search)
+- New lender Tables: <tablesPath>
+- New lender RateParser: <rateParserPath>
+- New lender AdjParser: <adjParserPath>
+- Reference Tables (read-only): <similar_lender_tablesPath>
+- Tests: RateParserTest.java, AdjustmentParsersTest.java
 
 ## Beads Plan
-<PASTE FULL beads_plan.md CONTENT>
+<PASTE beads_plan.md>
 
 ## Implementation Rules
-
-### Critical Rules (NEVER violate):
-1. Each TableInfo MUST use a UNIQUE `LenderAdjustments.field_N` — never reuse
-2. FICO rows are DESCENDING: `Double.MAX_VALUE, 780d, 760d, ... Double.MIN_VALUE`
-3. LTV columns are ASCENDING: `Double.MIN_VALUE, 60d, 70d, 75d, ... 100d`
-4. Every table in `calculators()` MUST also be in `allTables()`
-5. Every `.mode()` in rate parser MUST exist in `getModeResolver()`
-6. Use keyword-based section splitting, NEVER hardcoded row indices
-7. `crawlLabels` must match EXACT text from the ratesheet
-8. 999.0 = ineligible sentinel value
-
-### Code Patterns
-
-#### ConditionTableInfo (condition rows):
-```java
-public static ConditionTableInfo <name> = ConditionTableInfo.createBuilder()
-    .tableName("<Descriptive Name>")
-    .rowRange(
-        CONDITION1.setNote("Label 1"),
-        CONDITION2.setNote("Label 2")
-    )
-    .condition(<GATE_CONDITION>)
-    .field(LenderAdjustments.field_<N>)
-    .build();
+<standard critical rules + code patterns + conditions reference>
 ```
 
-#### FICO x LTV matrix (ConditionTableInfo with fico rows):
-```java
-public static ConditionTableInfo <name> = ConditionTableInfo.createBuilder()
-    .rowName("FICO").rowRange(
-            fico(780, 850).crawlNote("≥ 780"),
-            fico(760, 779).crawlNote("760 - 779"),
-            fico(740, 759).crawlNote("740 - 759"),
-            fico(720, 739).crawlNote("720 - 739"),
-            fico(700, 719).crawlNote("700 - 719"),
-            fico(680, 699).crawlNote("680 - 699"),
-            fico(660, 679).crawlNote("660 - 679")
-    )
-    .colRange(fico(0, 85), fico(86, 95), fico(95, 100), FHA_STREAMLINE)
-    .field(LenderAdjustments.field_<N>)
-    .tableName("<Descriptive Name>")
-    .build();
-```
-**IMPORTANT**:
-- Use `ConditionTableInfo` with `fico().crawlNote()` rows for FICO tables
-- Use condition-based `colRange()` with `fico()` ranges and loan type conditions
-- The `colRange` column count must match the actual number of value columns in the ratesheet
-
-#### ValidateCalculator:
-```java
-ValidateCalculator.make("<Description>")
-    .when(<GATE>)
-    .inValidCondition(<FAIL_CONDITION>);
-```
-
-#### Rate Parser Product:
-```java
-getProduct(Category, fixed(30), LoanType, lockPeriod(30))
-```
-
-### Conditions Reference
-- Loan type: CONVENTIONAL, FHA, VA, USDA, JUMBO, GOV, NON_JUMBO, HIGH_BALANCE
-- Purpose: PM, REFINANCE_RATE_TERM, CASH_OUT, ALL_REFINANCE
-- Occupancy: OWNER, SECOND_HOME, INVESTMENT
-- Term: FIXED, ARM, TERM_GT_15, TERM_GT_20_FIXED, TERM_30_FIXED, TERM_15_FIXED
-- Property: CONDO, MANUF, UNIT_2_4
-- Ranges: fico(min,max), ltv(min,max), cltv(min,max), term(min,max), loanAmount(min,max)
-- Compose: A.and(B), A.or(B), A.not(), state("NY"), rateMode(RateMode.X)
-
-## Execution
-
-### For each bead, output before starting:
-```
-[dev] Bead N: <description> (<filename>)
-```
-
-### After all beads — Self-Correcting Compile:
-```bash
-cd /Users/trungthach/IdeaProjects/moso-pricing
-mvn install -DskipTests -Pjar-packaging -Dgwt.compiler.skip=true 2>&1 | tail -30
-```
-
-If compile FAILS → read error, fix, retry (up to 3 times).
-If compile PASSES → report success.
-
-## Output Format
-Return EXACTLY:
-
----
-## DEV LEAD REPORT
-
-### Beads Completed
-- [ ] or [x] for each bead task
-
-### Files Modified
-- <path>: <summary of changes>
-
-### Tables Added
-- <tableName>: <type> — field_<N>, condition: <gate>
-
-### Rate Programs Added
-- <product description>
-
-### Validation Rules Added
-- <rule description>
-
-### Mode Resolver Changes
-- <change description or "No changes">
-
-### Build Status
-- <PASS or FAIL with error>
-
-### Notes
-- <any concerns or decisions made>
----
-```
-
-### After Dev returns:
-
+After Dev returns:
 ```bash
 source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
-emit_agent_complete "dev-lead"
-# Emit each file changed:
-emit_agent_file "dev-lead" "<filepath>" "modified"
+emit_agent_complete "dev"
 ```
-
-Update `beads_plan.md` — mark completed beads as `[x]`.
 
 ---
 
-## STEP 5 — QC Agent: Test + Code Quality Validation
+## STEP 5 — QC Agent: Test + Learn Failures
 
 **Output:**
 ```
-[new-parser 5/8] QC — Running tests...
+[new-parser 5/8] QC — Testing...
 ```
 
 ```bash
 source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
-emit_pipeline_phase "qc-lead"
-emit_agent_start "qc-lead" "Running tests"
+emit_pipeline_phase "qc" && emit_agent_start "qc" "Testing"
 ```
 
-### Spawn QC Lead agent (foreground)
+Spawn with: `subagent_type: "parser-qc"`, description: `"QC: test + report failures"`
 
-Spawn with: `subagent_type: "parser-qc"`, description: `"QC Lead: test parser changes"`
+QC prompt includes memory-resolved paths + dev report + standard checklist.
 
-**Prompt template** (fill in from lender_context + dev report):
-
+**NEW: QC agent must categorize any failure:**
 ```
-You are the QC Lead for a mortgage ratesheet parser team. Validate the Dev Lead's implementation.
+For each failure, report:
+- Error type: CRAWL_MISMATCH / VALUE_MISMATCH / field_N / NullPointer / etc.
+- Root cause category: [pitfall_known | new_pattern | template_mismatch | bug]
+- Whether pitfall checklist would have prevented it: yes/no
+```
 
-## Dashboard Reporting
+After QC returns:
 ```bash
 source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
-emit_agent_step "qc-lead" "Running adjustment parser test"
-emit_agent_test "qc-lead" "Build" "PASS" "BUILD SUCCESS"
-```
-
-## Memory-Resolved File Paths (do NOT search — use these directly)
-- Tables: <tablesPath>
-- RateParser: <rateParserPath>
-- AdjParser: <adjParserPath>
-
-## Context
-- **Lender**: <LENDER_NAME>
-- **Ratesheet**: <RATESHEET_PATH>
-- **Working directory**: /Users/trungthach/IdeaProjects
-
-## Dev Lead Report
-<PASTE DEV LEAD REPORT>
-
-## QC Checklist
-
-### Test 1: Verify moso-pricing builds
-```bash
-cd /Users/trungthach/IdeaProjects/moso-pricing
-mvn install -DskipTests -Pjar-packaging -Dgwt.compiler.skip=true 2>&1 | tail -20
-```
-
-### Test 2: Run AdjustmentParsersTest
-```bash
-cd /Users/trungthach/IdeaProjects/packs/loan
-mvn test -Dtest=AdjustmentParsersTest#test<LenderName> -Dratesheet.path=<RATESHEET_PATH> 2>&1 | tail -40
-```
-
-### Test 3: Run RateParserTest
-```bash
-cd /Users/trungthach/IdeaProjects/packs/loan
-mvn test -Dtest=RateParserTest#test<LenderName> -Dratesheet.path=<RATESHEET_PATH> 2>&1 | tail -40
-```
-**IMPORTANT**: For new rate programs, update expected counts in RateParserTest.java:
-- `rateMap.keySet().hasSize(NEW_COUNT)`
-- `assertRatesCount(LenderType, NEW_RATE_COUNT)`
-
-### Test 4: Verify BOTH tests pass together
-```bash
-cd /Users/trungthach/IdeaProjects/packs/loan
-mvn test -Dtest="AdjustmentParsersTest#test<LenderName>+RateParserTest#test<LenderName>" -Dratesheet.path=<RATESHEET_PATH> 2>&1 | tail -20
-```
-
-### Test 5: Code Quality Validation
-Read the modified files (using paths above — do NOT search) and verify:
-
-0. **RateParserTest counts updated**: Dev MUST have updated hasSize(N) and assertRatesCount(). If not → FAIL.
-1. **Field uniqueness**: No two tables share the same field_N
-2. **allTables completeness**: Every static TableInfo field is in allTables()
-3. **calculators completeness**: Every table has a corresponding TableCalculator
-4. **Mode alignment**: Every rate parser .mode() exists in getModeResolver()
-5. **Condition gates**: Each calculator has appropriate condition
-6. **Range directions**: FICO descending (MAX_VALUE first), LTV ascending (MIN_VALUE first)
-7. **crawlLabels count**: Matches row ranges minus 2 sentinels
-
-## Output Format
-Return EXACTLY:
-
----
-## QC REPORT
-
-### Overall Status: <PASS / FAIL>
-
-### Test Results
-| Test | Status | Details |
-|------|--------|---------|
-| Build | PASS/FAIL | <details> |
-| AdjustmentParsersTest | PASS/FAIL | <details> |
-| RateParserTest | PASS/FAIL | <details> |
-| Both Tests Together | PASS/FAIL | <details> |
-| RateParserTest Counts | PASS/FAIL | <details> |
-| Field Uniqueness | PASS/FAIL | <details> |
-| allTables Complete | PASS/FAIL | <details> |
-| calculators Complete | PASS/FAIL | <details> |
-| Mode Alignment | PASS/FAIL | <details> |
-| Range Directions | PASS/FAIL | <details> |
-| crawlLabels Count | PASS/FAIL | <details> |
-
-### Failures (if any)
-#### Failure N: <test name>
-- **Error**: <exact error message>
-- **File**: <file path>:<line>
-- **Root Cause**: <analysis>
-- **Suggested Fix**: <specific fix recommendation>
-- **Target Bead**: Bead <N> — <bead description>
-
-### Recommendations
-- <any improvements or concerns>
----
-```
-
-### After QC returns:
-
-```bash
-source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
-# If passed:
-emit_agent_complete "qc-lead"
-# If failed:
-emit_agent_fail "qc-lead" "N tests failed"
+emit_agent_complete "qc"  # or emit_agent_fail
 ```
 
 ---
 
-## STEP 6 — Handle QC Result (Beads-Based Retry)
+## STEP 6 — Handle QC Result (Smart Retry)
 
-**If QC PASSES → skip to Step 7 (Verification Test).**
+**If QC PASSES → Step 7 (Verify).**
 
-**If QC FAILS (max 3 retry loops):**
+**If QC FAILS (max 3 retries):**
 
-Show QC failure report to user and ask:
-> QC found issues. Options:
-> 1. **Auto-fix** — analyze failures, create fix beads, send back to Dev
-> 2. **Manual review** — I'll show you the details so you can guide the fix
-> 3. **Abort** — stop and investigate manually
+1. **Check if failure was a known pitfall:**
+   - If yes → the Dev agent ignored the prevention checklist. Re-spawn with stronger emphasis.
+   - If no → new pattern. Record it for future pricing knowledge updates.
 
-**If auto-fix:**
+2. **Check cookbook for same error on similar lender:**
+   - If cookbook has a fix for this error type → include as hint
 
-```
-for attempt in 1..3:
+3. **Create targeted fix beads** (same escalation as /fix-parser):
+   - Map error to specific file
+   - Include past fix hint if available
+   - Spawn parser-dev with fix beads
 
-    1. ANALYZE QC failures — map each to a specific bead:
-       | QC Failure | Target Bead | Fix |
-       |------------|-------------|-----|
-       | CRAWL_MISMATCH on field_12 | Bead 3 (adj) | Fix section keyword |
-       | field_N duplicate | Bead 1 (tables) | Change field number |
-       | Mode not found | Bead 1 (tables) | Add to getModeResolver |
-       | Rate count wrong | Bead 4 (test) | Update expected counts |
-
-    2. CREATE fix beads (only for failed items):
-       ## Fix Beads (attempt <N>)
-       ### Fix Bead 1: <target file> — <specific change>
-       - File: <exact path from lender_context>
-       - Root cause: <from QC analysis>
-       - Fix: <specific code change>
-
-    3. SPAWN parser-dev with fix beads:
-       subagent_type: "parser-dev"
-       Prompt includes:
-       - Memory-resolved paths (do NOT search)
-       - QC failure details
-       - Fix beads with specific instructions
-       - "Only fix listed issues — do NOT change working code"
-       - Rebuild after fixes
-
-    4. RE-RUN QC (spawn parser-qc again)
-
-    5. If PASS → break, go to Step 7
-       If FAIL → continue loop
-
-    Emit per retry:
-    source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
-    emit_pipeline_retry <attempt>
-```
-
-**If still failing after 3 attempts:**
-Escalate to user with full diagnostic. Write failure report:
-```bash
-mkdir -p docs/changes/<JIRA_KEY>
-```
-Append failure details to beads_plan.md.
+4. **After fix → re-run QC**
 
 ---
 
-## STEP 7 — Verification Test (MUST pass before finalize)
-
-**Output:**
-```
-[new-parser 6/8] Verification — running final test pass...
-```
+## STEP 7 — Verification Test
 
 ```bash
 source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
 emit_pipeline_phase "verify"
 ```
 
-Run BOTH tests together:
 ```bash
 cd /Users/trungthach/IdeaProjects/packs/loan
-mvn test -Dtest="AdjustmentParsersTest#test<LenderName>+RateParserTest#test<LenderName>" -Dratesheet.path=<RATESHEET_PATH> 2>&1 | tail -20
+mvn test -Dtest="AdjustmentParsersTest#test<LenderName>+RateParserTest#test<LenderName>" -Dratesheet.path=<PATH> 2>&1 | tail -20
 ```
 
-**If verification FAILS:**
-- Do NOT finalize
-- Go back to Step 6 retry loop
-
-**If verification PASSES:**
-- Continue to Step 8
+If FAILS → back to Step 6 retry.
+If PASSES → continue.
 
 ---
 
-## STEP 8 — Finalization
+## STEP 8 — Learn + Finalize
 
-**Output:**
-```
-[new-parser 7/8] Finalizing...
+### 8.1 LEARN — Update Knowledge Base
+
+**This is what makes the agent smarter. ALWAYS execute this step.**
+
+#### Update Build Cookbook
+
+Add/update the lender entry in `$BUILD_COOKBOOK`:
+
+```markdown
+## <LenderName>
+- **type**: <Conventional/NonQM/FHA/VA/USDA>, <QM/NonQM>
+- **paths**: Tables=`<path>`, Rate=`<path>`, Adj=`<path>`
+- **tables**: <N> total — <breakdown by type>
+- **table_details**:
+  <for each table: name, type, row structure, col structure, gate condition, field_N>
+- **rate_products**: <N> — <list: fixed(30), arm(5,1), etc.>
+- **lock_periods**: [<list>]
+- **adj_sections**: split by "<keyword>"
+- **adj_keyword**: "<exact keyword used>"
+- **modes**: [<list>]
+- **field_range**: field_<first> through field_<last>
+- **qc_issues**: [<list of issues encountered during build>]
+- **similar_to**: [<lenders with similar structure>]
+- **build_date**: <today>
+- **build_stats**: dev: <N> beads, qc: <N> retries
 ```
 
-### 8.1 Accept Expectations
+#### Update Pricing Knowledge
+
+If this build revealed NEW patterns not in pricing knowledge:
+- New table type not documented → add to "Table Patterns by Loan Type"
+- New common mistake discovered → add to "Common Mistakes"
+- New loan type variation → add section
+
+If QC found a pitfall that the checklist should have prevented but didn't:
+- Add it to the checklist with more specific wording
+
+#### Update Similarity Index
+
+If this lender is structurally similar to an existing lender:
+- Add `similar_to` cross-references in both cookbook entries
+
+```bash
+source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
+emit_agent_step "new-parser" "Cookbook updated: <lender> (<type>, <N> tables)"
+```
+
+### 8.2 Accept Expectations
+
 ```bash
 cd /Users/trungthach/IdeaProjects/packs/loan
 mvn test -Dtest=AdjustmentParsersTest#test<LenderName> -Dratesheet.path=<PATH> -Daccept -Daccept.new.adj 2>&1 | tail -10
 ```
 
-### 8.2 Update RateParserTest Counts (if new rate program)
+### 8.3 Update RateParserTest Counts
+
 ```bash
 mvn test -Dtest=RateParserTest#test<LenderName> -Dratesheet.path=<PATH> 2>&1 | grep -E "hasSize|assertRatesCount|Expected|Actual"
 ```
-Update counts in RateParserTest.java, then re-run to confirm.
+Update counts, re-run to confirm.
 
-### 8.3 Copy Ratesheet (if not already in resources)
-```bash
-cp <RATESHEET_PATH> /Users/trungthach/IdeaProjects/packs/loan/src/test/resources/ratesheets/<lender_MMDD>.<ext>
-```
+### 8.4 Copy Ratesheet + Update RatesheetFiles.java
 
-### 8.4 Update RatesheetFiles.java if new constant needed
+### 8.5 Final Verification (without --ratesheet)
 
-### 8.5 Final Verification — run BOTH tests without custom ratesheet path
 ```bash
 cd /Users/trungthach/IdeaProjects/packs/loan
 mvn test -Dtest="AdjustmentParsersTest#test<LenderName>+RateParserTest#test<LenderName>" 2>&1 | tail -20
 ```
-Both MUST show BUILD SUCCESS.
 
 ### 8.6 Summary Report
-
-**Output:**
-```
-[new-parser 8/8] Complete!
-```
 
 ```bash
 source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
@@ -875,22 +694,24 @@ emit_pipeline_done
 ## /new-parser Complete: <JIRA_KEY>
 
 ### Pipeline Summary
-✓ Memory:     Loaded — <N> files indexed
-✓ BA:         specs.md created
-✓ Architect:  beads_plan.md created (Beads 1-5)
+✓ Knowledge:  Loaded — cookbook: <N> lenders, pricing: <N> patterns
+✓ Similar:    <similar_lender> used as template
+✓ BA:         specs.md (domain-aware analysis)
+✓ Architect:  beads_plan.md (template-guided, <N> beads)
 ✓ Dev:        <N> files changed, compile PASS
-✓ QC:         All tests passed [after <M> iterations]
+✓ QC:         All tests passed [after <M> retries]
 ✓ Verify:     Both tests pass together
+✓ Learn:      Cookbook updated (+1 lender)
 ✓ Finalize:   Expectations accepted, ratesheet copied
 
-### Agent Team Results
-- BA Lead: Analyzed <JIRA_KEY>, identified <N> tables, <N> products
-- Architect: Decomposed into <N> beads
-- Dev Lead: Modified <N> files, added <N> tables, <N> rate programs, <N> validation rules
-- QC Lead: All <N> tests passed [after <M> iterations]
+### Intelligence Used
+- Domain knowledge: <loan_type> patterns applied
+- Template lender: <similar_lender> (saved ~<N>% analysis time)
+- Pitfalls prevented: <N> (from checklist)
+- New patterns learned: <N> (added to knowledge base)
 
 ### Files Changed
-- <file>: <summary>
+<list>
 
 ### Artifacts
 docs/changes/<JIRA_KEY>/
@@ -905,20 +726,22 @@ All tests passing. Run `/commit` when ready.
 
 ## Optimization Rules (Always Enforced)
 
-1. **Memory-First**: Always check `infrastructure_index.md` before searching. Never run broad `find` or `grep -r` when memory has the answer.
+1. **Knowledge-First**: Load cookbook + pricing knowledge before any analysis. Never build from scratch when a template exists.
 
-2. **No Re-reads**: specs.md and beads_plan.md written earlier stay in context — never re-read in later steps. Files read by BA don't need re-reading by Dev if paths are passed.
+2. **Similar Lender as Template**: Always search cookbook for structurally similar lenders. Use their Tables class as a reference implementation.
 
-3. **Targeted Agents**: Always pass memory-resolved file paths to agents with "do NOT search" instruction. This saves 30-50% of agent tokens.
+3. **Domain-Aware BA**: BA agent gets pricing knowledge injected. It validates ratesheet against domain expectations, not just describes what it sees.
 
-4. **Beads over Blob**: Dev agent gets ordered beads with exact file paths and acceptance criteria. Never send flat "implement these subtasks" prompts.
+4. **Pitfall Prevention**: Dev agent gets the prevention checklist BEFORE implementing. Cheaper to prevent than to fix after QC catches it.
 
-5. **Beads-Based Retry**: When QC fails, map failure to specific bead → create targeted fix beads. Never send vague "fix QC failures" to Dev.
+5. **Learn from Every Build**: ALWAYS update cookbook, pricing knowledge, and similarity index after completion. This is non-negotiable.
 
-6. **Verify Before Finalize**: Always run verification test (Step 7) after QC passes. Flow: Dev → QC → Verify → Finalize.
+6. **Learn from Failures Too**: QC failures get categorized and added to pricing knowledge's "Common Mistakes" section.
 
-7. **Use Dedicated Agents**: Spawn `parser-ba`, `parser-dev`, `parser-qc` agents — not `general-purpose`. They have domain-specific knowledge baked in.
+7. **Memory-First Paths**: cookbook paths → infrastructure_index → project_structure → lender-info.sh. Never broad search.
 
-8. **Cache Everything**: Lender paths, field numbers, test method names — cache on first lookup in `lender_context`, reuse across all steps.
+8. **No Re-reads**: specs.md and beads_plan.md stay in context. Reference lender read once by Dev.
 
-9. **Self-Correcting Compile**: Dev agent retries compile up to 3 times before reporting failure. Don't escalate build errors that can be auto-fixed.
+9. **Targeted Agents**: Use parser-ba, parser-dev, parser-qc. Pass pre-resolved paths with "do NOT search".
+
+10. **Verify Before Finalize**: Dev → QC → Verify → Learn → Finalize. Never skip verify or learn.
