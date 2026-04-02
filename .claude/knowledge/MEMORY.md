@@ -36,6 +36,7 @@
 - [Update test inputStream refs](feedback_update_test_inputstream.md) — After downloading new ratesheet, must update AdjustmentParsersTest + RateParserTest references
 - [Email templates are file-based](feedback_email_templates.md) — Templates are .json + .content.htm in moso-configuration, not admin panel
 - [Commit style for parser fixes](feedback_commit_style.md) — One commit per Jira task, short messages, no Co-Authored-By
+- [Run both tests for parser fixes](feedback_run_both_tests.md) — Always run RateParserTest AND AdjustmentParsersTest before and after fixing
 
 ## Qualification Matrix Updates
 - **[SKILL_UPDATE_QUALIFICATION_MATRICES.md](../docs/SKILL_UPDATE_QUALIFICATION_MATRICES.md)** - Complete skill documentation for updating/creating qualification matrices
