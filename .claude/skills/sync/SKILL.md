@@ -1,12 +1,19 @@
 ---
 name: sync
-description: Pull latest repo, sync new/updated agents and skills from ~/.claude/ into the repo (add-only, no deletes), commit and push.
+description: Pull latest, sync agents, skills, and knowledge (cookbook, pricing, feedback memories) into the repo. Add-only, no deletes. Commit and push.
 allowed-tools: Bash, Read, Glob, Grep
 ---
 
-# Sync Agents & Skills
+# Sync Agents, Skills & Knowledge
 
-Synchronize agents and skills between `~/.claude/` and the tools repo. **Add-only** — never delete files from the repo.
+Synchronize agents, skills, and knowledge files between `~/.claude/` and the tools repo. **Add-only** — never delete files from the repo.
+
+## Constants
+
+```
+REPO_CLAUDE="/Users/trungthach/IdeaProjects/tools/.claude"
+MEMORY_DIR="$HOME/.claude/projects/-Users-trungthach-IdeaProjects/memory"
+```
 
 ## Steps
 
@@ -15,23 +22,19 @@ Run these steps in order:
 ### Step 1: Pull latest
 ```bash
 cd /Users/trungthach/IdeaProjects/tools
-git pull --rebase
+git stash 2>/dev/null; git pull --rebase; git stash pop 2>/dev/null
 ```
 
-### Step 2: Resolve repo path
+### Step 2: Sync agents
+Compare `~/.claude/agents/` with `$REPO_CLAUDE/agents/`. For each `.md` file:
+- NOT in repo → copy (NEW)
+- Differs → copy (UPDATED)
+- Matches → skip (UNCHANGED)
+
+**Never delete** files from the repo.
+
 ```bash
 REPO_CLAUDE="/Users/trungthach/IdeaProjects/tools/.claude"
-```
-
-### Step 3: Sync agents
-Compare `~/.claude/agents/` with `$REPO_CLAUDE/agents/`. For each `.md` file in `~/.claude/agents/`:
-- If it does NOT exist in the repo → copy it in (NEW)
-- If it exists but content differs → copy the updated version (UPDATED)
-- If it exists and content matches → skip (UNCHANGED)
-
-**Never delete** files from `$REPO_CLAUDE/agents/` that don't exist in `~/.claude/agents/`.
-
-```bash
 cd ~/.claude/agents
 for f in *.md; do
   if [ ! -f "$REPO_CLAUDE/agents/$f" ]; then
@@ -46,11 +49,11 @@ for f in *.md; do
 done
 ```
 
-### Step 4: Sync skills
+### Step 3: Sync skills
 Compare `~/.claude/skills/` with `$REPO_CLAUDE/skills/`. For each skill directory:
-- If it does NOT exist in the repo → copy it in (NEW)
-- If it exists but SKILL.md differs → copy the updated version (UPDATED)
-- If it exists and matches → skip (UNCHANGED)
+- NOT in repo → copy (NEW)
+- SKILL.md differs → copy (UPDATED)
+- Matches → skip (UNCHANGED)
 
 **Never delete** skill directories from the repo.
 
@@ -74,6 +77,58 @@ for d in */; do
 done
 ```
 
+### Step 4: Sync knowledge (cookbooks, pricing, feedback)
+
+Sync important memory files from project memory into `$REPO_CLAUDE/knowledge/`.
+
+**Knowledge files to sync** (add-only, never delete):
+
+| Source (project memory) | Purpose |
+|------------------------|---------|
+| `parser_fix_cookbook.md` | Fix-parser tier history, cached paths, fix patterns |
+| `parser_build_cookbook.md` | New-parser build history, table patterns, similar lenders |
+| `parser_pricing_knowledge.md` | Pricing domain knowledge, common mistakes |
+| `feedback_*.md` | User preferences (commit style, review rules, etc.) |
+| `ai_parser_workflow.md` | Parser workflow knowledge |
+| `project_architecture.md` | Architecture understanding |
+
+```bash
+REPO_CLAUDE="/Users/trungthach/IdeaProjects/tools/.claude"
+MEMORY_DIR="$HOME/.claude/projects/-Users-trungthach-IdeaProjects/memory"
+mkdir -p "$REPO_CLAUDE/knowledge"
+
+# Sync specific knowledge files
+for f in parser_fix_cookbook.md parser_build_cookbook.md parser_pricing_knowledge.md ai_parser_workflow.md project_architecture.md; do
+  if [ -f "$MEMORY_DIR/$f" ]; then
+    if [ ! -f "$REPO_CLAUDE/knowledge/$f" ]; then
+      cp "$MEMORY_DIR/$f" "$REPO_CLAUDE/knowledge/$f"
+      echo "NEW: knowledge/$f"
+    elif ! diff -q "$MEMORY_DIR/$f" "$REPO_CLAUDE/knowledge/$f" > /dev/null 2>&1; then
+      cp "$MEMORY_DIR/$f" "$REPO_CLAUDE/knowledge/$f"
+      echo "UPDATED: knowledge/$f"
+    else
+      echo "UNCHANGED: knowledge/$f"
+    fi
+  fi
+done
+
+# Sync all feedback_*.md files
+for f in "$MEMORY_DIR"/feedback_*.md; do
+  if [ -f "$f" ]; then
+    fname=$(basename "$f")
+    if [ ! -f "$REPO_CLAUDE/knowledge/$fname" ]; then
+      cp "$f" "$REPO_CLAUDE/knowledge/$fname"
+      echo "NEW: knowledge/$fname"
+    elif ! diff -q "$f" "$REPO_CLAUDE/knowledge/$fname" > /dev/null 2>&1; then
+      cp "$f" "$REPO_CLAUDE/knowledge/$fname"
+      echo "UPDATED: knowledge/$fname"
+    else
+      echo "UNCHANGED: knowledge/$fname"
+    fi
+  fi
+done
+```
+
 ### Step 5: Check for changes
 ```bash
 cd /Users/trungthach/IdeaProjects/tools
@@ -83,11 +138,11 @@ git status --short .claude/
 If no changes, report "Everything is up to date" and stop.
 
 ### Step 6: Commit and push
-Stage only `.claude/agents/` and `.claude/skills/`, commit with a summary of what was added/updated, and push.
+Stage `.claude/agents/`, `.claude/skills/`, and `.claude/knowledge/`, commit and push.
 
 ```bash
-git add .claude/agents/ .claude/skills/
-git commit -m "Sync agents and skills: <summary of NEW/UPDATED items>"
+git add .claude/agents/ .claude/skills/ .claude/knowledge/
+git commit -m "Sync: <summary of NEW/UPDATED items>"
 git push
 ```
 
@@ -98,3 +153,4 @@ Show the user a summary table:
 |------|--------|
 | agents/xyz.md | NEW / UPDATED / UNCHANGED |
 | skills/xyz | NEW / UPDATED / UNCHANGED |
+| knowledge/xyz.md | NEW / UPDATED / UNCHANGED |
