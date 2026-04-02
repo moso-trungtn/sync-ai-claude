@@ -85,12 +85,14 @@ Sync important memory files from project memory into `$REPO_CLAUDE/knowledge/`.
 
 | Source (project memory) | Purpose |
 |------------------------|---------|
+| `MEMORY.md` | **Master index** — tells Claude what memories exist (CRITICAL) |
 | `parser_fix_cookbook.md` | Fix-parser tier history, cached paths, fix patterns |
 | `parser_build_cookbook.md` | New-parser build history, table patterns, similar lenders |
 | `parser_pricing_knowledge.md` | Pricing domain knowledge, common mistakes |
 | `feedback_*.md` | User preferences (commit style, review rules, etc.) |
 | `ai_parser_workflow.md` | Parser workflow knowledge |
 | `project_architecture.md` | Architecture understanding |
+| `jira_access.md` | How to access Jira API |
 
 ```bash
 REPO_CLAUDE="/Users/trungthach/IdeaProjects/tools/.claude"
@@ -98,7 +100,7 @@ MEMORY_DIR="$HOME/.claude/projects/-Users-trungthach-IdeaProjects/memory"
 mkdir -p "$REPO_CLAUDE/knowledge"
 
 # Sync specific knowledge files
-for f in parser_fix_cookbook.md parser_build_cookbook.md parser_pricing_knowledge.md ai_parser_workflow.md project_architecture.md; do
+for f in MEMORY.md parser_fix_cookbook.md parser_build_cookbook.md parser_pricing_knowledge.md ai_parser_workflow.md project_architecture.md jira_access.md; do
   if [ -f "$MEMORY_DIR/$f" ]; then
     if [ ! -f "$REPO_CLAUDE/knowledge/$f" ]; then
       cp "$MEMORY_DIR/$f" "$REPO_CLAUDE/knowledge/$f"
