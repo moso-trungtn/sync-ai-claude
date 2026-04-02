@@ -1,11 +1,11 @@
 ---
-name: exec
+name: tera
 description: Multi-agent GWT pipeline orchestrator. Runs BA → UX → Dev Lead (Beads) → Dev (Surgeon) → DevOps chain for a Jira ticket. Memory-first file lookup, self-correcting mvn compile, full artifact trail.
 argument-hint: <JIRA_ID or URL>
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Agent
 ---
 
-# /exec — Multi-Agent GWT Pipeline
+# /tera — Multi-Agent GWT Pipeline
 
 Orchestrates the full development pipeline for a GWT Java Jira ticket.
 
@@ -23,7 +23,7 @@ source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
 
 | When | Command |
 |------|---------|
-| Skill starts | `emit_reset && emit_pipeline_start "exec"` |
+| Skill starts | `emit_reset && emit_pipeline_start "tera"` |
 | Jira key known | `emit_meta "<KEY>" "" "<ACTION>"` |
 | Memory loading | `emit_agent_start "memory" "Loading project memories"` |
 | Memory loaded | `emit_agent_complete "memory"` |
@@ -63,7 +63,7 @@ echo "WS=${MOSO_WORKSPACE:-MISSING} | MVN=${MAVEN_CMD:-MISSING} | JIRA=${JIRA_EM
 **If any value is `MISSING` → stop immediately and output:**
 
 ```
-/exec: First-time setup needed. Run:
+/tera: First-time setup needed. Run:
 
   bash $MOSO_WORKSPACE/.claude/helpers/setup.sh
 
@@ -111,8 +111,8 @@ Then restart Claude Code and retry.
 
 **If NOT a code task, output and stop:**
 ```
-/exec: This looks like a data/report request, not a code change task.
-/exec only implements GWT Java code changes.
+/tera: This looks like a data/report request, not a code change task.
+/tera only implements GWT Java code changes.
 
 For data exports and reports, use the application directly or contact the relevant team.
 If there is a bug in the report code itself, describe the specific Java class or behavior to fix.
@@ -144,15 +144,15 @@ If there is a bug in the report code itself, describe the specific Java class or
 
 5. If no context can be found at all → output:
    ```
-   /exec: No Jira key and no task context found.
-   Provide: /exec MOSO-XXXXX  or describe the task first.
+   /tera: No Jira key and no task context found.
+   Provide: /tera MOSO-XXXXX  or describe the task first.
    ```
    Then stop.
 
 After resolving the key:
 ```bash
 source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
-emit_pipeline_start "exec" && emit_meta "<ISSUE_KEY>" "" ""
+emit_pipeline_start "tera" && emit_meta "<ISSUE_KEY>" "" ""
 ```
 
 ---
@@ -694,7 +694,7 @@ emit_pipeline_done
 Output to user:
 
 ```
-## /exec Complete: <ISSUE_KEY>
+## /tera Complete: <ISSUE_KEY>
 
 ### Pipeline Summary
 ✓ Memory:    Loaded — <N> Java files indexed
