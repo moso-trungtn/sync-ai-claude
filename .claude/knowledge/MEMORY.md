@@ -37,6 +37,8 @@
 - [Email templates are file-based](feedback_email_templates.md) — Templates are .json + .content.htm in moso-configuration, not admin panel
 - [Commit style for parser fixes](feedback_commit_style.md) — One commit per Jira task, short messages, no Co-Authored-By
 - [Run both tests for parser fixes](feedback_run_both_tests.md) — Always run RateParserTest AND AdjustmentParsersTest before and after fixing
+- [Take screenshots during UI testing](feedback_test_screenshots.md) — During /test-task, screenshot each verdict step, save to screenshots/ folder, reference in Jira comment
+- [Verify emails via prospect conversation](feedback_verify_emails.md) — After triggering email, check Prospect Dashboard → Conversation History for the sent email
 
 ## Qualification Matrix Updates
 - **[SKILL_UPDATE_QUALIFICATION_MATRICES.md](../docs/SKILL_UPDATE_QUALIFICATION_MATRICES.md)** - Complete skill documentation for updating/creating qualification matrices
