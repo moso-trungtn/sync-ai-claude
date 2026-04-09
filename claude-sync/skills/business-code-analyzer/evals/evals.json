@@ -1,0 +1,44 @@
+{
+  "skill_name": "business-code-analyzer",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Analyze the Loan entity — I want to know all fields it has (including inherited ones), what operations exist for it, and what event listeners fire when a loan is saved or updated.",
+      "expected_output": "A complete entity map showing Loan inheritance chain (Loan → Alert → Contact → HasId → HasKey), all fields categorized by source, list of *Op.java classes, and EventListener classes with their trigger conditions",
+      "files": [],
+      "expectations": [
+        "Output includes Loan entity inheritance chain with parent classes",
+        "Output lists both direct and inherited fields",
+        "Output identifies at least 3 operation classes (*Op.java)",
+        "Output identifies event listeners with trigger conditions",
+        "Output includes file paths for all findings"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Trace the complete flow: what happens when a loan status changes from Active to Funded? I want every step — validation, business logic, side effects, emails, everything.",
+      "expected_output": "Step-by-step flow showing: status change trigger → validators that run → business logic executed → events generated → emails sent → other entities updated → async tasks queued",
+      "files": [],
+      "expectations": [
+        "Output traces from the entry point (UI action or API call)",
+        "Output identifies validators that check the status transition",
+        "Output lists side effects (emails, notifications, entity updates)",
+        "Output mentions async/queued tasks if any",
+        "Output provides file:line references for each step"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Give me all the business rules in the Credit Report module — every condition, every validation, every decision point. I want to know exactly what the code does, not what the docs say.",
+      "expected_output": "Numbered list of business rules extracted from Credit Report code: FICO scoring logic, vendor selection conditions, liability import rules, fee calculation conditions, with file paths and conditions for each",
+      "files": [],
+      "expectations": [
+        "Output extracts rules from actual code, not from documentation",
+        "Each rule includes CONDITION and ACTION",
+        "Output includes file paths as evidence",
+        "Output covers credit pull, scoring, and liability processing",
+        "Output identifies edge cases or special conditions in the code"
+      ]
+    }
+  ]
+}
