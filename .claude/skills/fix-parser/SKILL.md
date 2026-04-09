@@ -9,7 +9,9 @@ allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Agent, mcp__claude_ai_Atlass
 
 You are a **smart orchestrator** that fixes parser-failed lenders. You learn from every fix, classify errors by complexity, and take the cheapest path that works.
 
-Pipeline flow: **Memory + Cookbook → Jira → Download → Classify → (Tier 0 auto-fix | Tier 1 guided | Tier 2 full agent) → Verify → Learn → Commit**
+Pipeline flow: **Memory + Cookbook → Jira → Download → Classify → (Tier 0 auto-fix | Tier 1 guided | Tier 2 full agent) → Verify → Learn**
+
+**NO AUTO-COMMIT.** After all lenders are fixed and verified, leave changes staged but uncommitted. The user decides when and how to commit.
 
 ---
 
@@ -44,7 +46,7 @@ source /Users/trungthach/IdeaProjects/tools/agent-dashboard/emit.sh
 | Test result | `emit_agent_test "fix-parser" "<test>" "<PASS/FAIL>" "<details>"` |
 | Verify pass | `emit_agent_test "fix-parser" "Verify <LENDER>" "PASS" "Both pass"` |
 | Cookbook updated | `emit_agent_step "fix-parser" "Cookbook updated: <LENDER>"` |
-| Commit | `emit_agent_step "fix-parser" "Committed <KEY>"` |
+| Staged | `emit_agent_step "fix-parser" "Staged <KEY>"` |
 | Retry | `emit_pipeline_retry N` |
 | Done | `emit_pipeline_done` |
 
@@ -501,32 +503,24 @@ entry.tier_history.append(-1)  # -1 = failed
 entry.notes += "Failed on <date>: <reason>"
 ```
 
-### Step 4j: Git Commit
+### Step 4j: Stage Changes (NO COMMIT)
+
+Stage the changes for this lender so they're ready for the user to review:
 
 ```bash
-cd /Users/trungthach/IdeaProjects
+# Stage in packs/loan repo
+cd $PACKS_LOAN
+git add src/test/resources/adj-expectations/
+git add src/test/resources/ratesheets/
+git add src/test/resources/expected-new-adj/
+git add src/test/java/
 
-git add packs/loan/src/test/resources/adj-expectations/
-git add packs/loan/src/test/resources/ratesheets/
-git add packs/loan/src/test/resources/expected-new-adj/
-git add packs/loan/src/test/java/
-git add moso-pricing/
-
-git diff --cached --stat
+# Stage in moso-pricing repo (if Tier 1/2 changed code)
+cd $MOSO_PRICING
+git add src/main/java/
 ```
 
-Commit message includes the tier:
-```bash
-git commit -m "$(cat <<'EOF'
-MOSO-<XXXX>: fix <LenderName> parser (Tier <N>)
-
-Updated expectations for new ratesheet dated <DATE>.
-<If Tier 1/2: brief description of code fix>
-
-Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
-EOF
-)"
-```
+**Do NOT commit.** Leave changes staged. The user will commit manually.
 
 ### Step 4k: Mark Task as Fixed
 
@@ -547,11 +541,11 @@ emit_pipeline_done
 ## Fix Parser Pipeline — Complete
 
 ### Results
-| Key | Lender | Tier | Fix Type | Commit |
+| Key | Lender | Tier | Fix Type | Status |
 |-----|--------|------|----------|--------|
-| MOSO-15944 | BrokerFirstFunding | 0 | auto-fix (expectations) | abc1234 |
-| MOSO-15943 | LoganFinance | 0 | auto-fix (expectations) | def5678 |
-| MOSO-15942 | NewLender | 1 | guided fix (CRAWL_MISMATCH) | ghi9012 |
+| MOSO-15944 | BrokerFirstFunding | 0 | auto-fix (expectations) | staged |
+| MOSO-15943 | LoganFinance | 0 | auto-fix (expectations) | staged |
+| MOSO-15942 | NewLender | 1 | guided fix (CRAWL_MISMATCH) | staged |
 
 ### Skipped
 | Key | Lender | Reason |
@@ -593,4 +587,4 @@ Total: N fixed, M skipped
 
 9. **Memory-First Paths**: Use `infrastructure_index.md` → `cookbook cached paths` → `lender-info.sh`. Never broad search.
 
-10. **Verify Before Commit**: Always run verification test. Flow: Classify → Fix (by tier) → Verify → Learn → Commit.
+10. **Verify Before Done**: Always run verification test. Flow: Classify → Fix (by tier) → Verify → Learn → Stage (no commit). User commits manually.
