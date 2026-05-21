@@ -60,6 +60,20 @@
 - Use loanAmount(min, max) ranges
 - Often combined with FICO or LTV
 
+## Special Adjustments
+
+### ConstantCalculator for Flat Adjustments
+- Use `ConstantCalculator("name", condition, value)` for flat adjustments (e.g., Spotlight Special +0.50)
+- Add to calculators via `TableCalculator.calculators().add(new ConstantCalculator(...)).create()`
+- The builder `.add(Calculator...)` accepts any Calculator implementation
+- For all-product specials, use `ALL` condition
+
+### Lender Specials / Promotions
+- Some lenders offer temporary pricing specials (e.g., "Spotlight Special")
+- These appear as announcements in ratesheets
+- Implementation: ConstantCalculator with the special value for affected products
+- The NewAdjustmentDetector may flag announcement text as "new" — accept these as remainders
+
 ## Common Mistakes (Learned from QC)
 
 ### Frequency: Very Common (>30% of first attempts)

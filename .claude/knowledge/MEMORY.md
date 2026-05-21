@@ -36,7 +36,11 @@
 - [Update test inputStream refs](feedback_update_test_inputstream.md) — After downloading new ratesheet, must update AdjustmentParsersTest + RateParserTest references
 - [Email templates are file-based](feedback_email_templates.md) — Templates are .json + .content.htm in moso-configuration, not admin panel
 - [Commit style for parser fixes](feedback_commit_style.md) — One commit per Jira task, short messages, no Co-Authored-By
+- [check-rate commit style](feedback_check_rate_commit_style.md) — `[type] subject` bracketed prefix, imperative mood, no AI-branding trailers; see `check-rate/CLAUDE.md` for the full convention
 - [Run both tests for parser fixes](feedback_run_both_tests.md) — Always run RateParserTest AND AdjustmentParsersTest before and after fixing
+- [Take screenshots during UI testing](feedback_test_screenshots.md) — During /test-task, screenshot each verdict step, save to screenshots/ folder, reference in Jira comment
+- [Verify emails via prospect conversation](feedback_verify_emails.md) — After triggering email, check Prospect Dashboard → Conversation History for the sent email
+- [Separate LF namespace in migration ops](feedback_separate_lf_namespace.md) — In UpgradeManOp scripts, run LoanFactory NS separately from active companies, not together
 
 ## Qualification Matrix Updates
 - **[SKILL_UPDATE_QUALIFICATION_MATRICES.md](../docs/SKILL_UPDATE_QUALIFICATION_MATRICES.md)** - Complete skill documentation for updating/creating qualification matrices
@@ -44,3 +48,5 @@
   - Location: `*Tables.java` files in moso-pricing
   - Pattern: ValidateCalculator rules + ConditionTableInfo adjustment tables
   - Includes: Step-by-step workflow, condition builders, examples, checklist
+| [project_structure.md](project_structure.md) | GWT Java project file index — file counts and package structure for fast file lookup |
+| [infrastructure_index.md](infrastructure_index.md) | Known infrastructure class paths by concern — use before grepping |
