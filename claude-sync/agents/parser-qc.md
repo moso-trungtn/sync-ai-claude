@@ -25,6 +25,9 @@ The user will provide:
 ## Context
 - **Working directory**: /Users/trungthach/IdeaProjects
 
+## Step 0: Load Project Knowledge (ALWAYS FIRST)
+Before running tests, check `moso-pricing/docs/parser-patterns.md` and `moso-pricing/docs/adj-*.md` for the conventions being validated, and `moso-docs/docs/core/INFRASTRUCTURE_INDEX.md` for anything outside the pricing module. Check `moso-docs/memory/coding-patterns.md` for previously-seen QC failure patterns.
+
 ## QC Checklist
 
 ### Test 1: Verify moso-pricing builds

@@ -123,6 +123,16 @@ Accumulated understanding of pricing patterns:
 - **Special**: 999.0 sentinel more common, more ValidateCalculator rules
 - **Modes**: often just DEFAULT or by program name
 
+### HELOC / HELOAN (Home Equity) — FULL PRIMER: moso-docs/HELOC_PARSER_PRIMER.md (always read it first)
+- **TWO SEPARATE PROGRAMS**: HELOC (open-end line) vs HELOAN (closed-end). Never merge. Shared sheets/grids: tag rows with RateMode so every rate row resolves to exactly one program.
+- **Always has**: FICO x CLTV margin grid (variable: value = margin over WSJ Prime; margins CAN be negative; empty cell = 999.0). HELOAN/FIXLINE: absolute-rate grids per term.
+- **Adjustments apply to RATE (margin), NOT price** — opposite of QM LLPA. Exceptions: Amwest HELOC is price-based (QM-like margin stack x price); Spring EQ has a small +-0.10 buy up/down.
+- **No lock periods** on variable products — never multiply rows by lock. Fixed HELOAN/Amwest do have 30/45/60-day locks.
+- **Payments**: interest-only during draw + amortizing repayment — engine returns both.
+- **Fetch**: Spring EQ/Quorum = URL download (not email); Figure = pricing-update email (effective date from BODY, not filename); Amwest = HELOC page inside the existing daily sheet.
+- **Figure special**: origination-fee tiers = rate stack (1 Rate row per tier, tiers restricted per state).
+- **v1 lenders, sheet anatomy, per-lender pitfalls**: HELOC_PARSER_PRIMER.md sections 2-4; deep data in "/Users/trungthach/IdeaProjects/HELOC pricing/heloc-ratesheet-analysis.md".
+
 ### FHA
 - **Always has**: FICO×LTV matrix with FHA_STREAMLINE column
 - **Specific**: colRange includes FHA_STREAMLINE condition
@@ -247,7 +257,12 @@ emit_pipeline_phase "ba" && emit_agent_start "ba" "Analyzing ticket"
 **Before spawning BA agent**, the orchestrator does a quick classification from the Jira title:
 
 ```
-1. Extract loan type from title: [QM], [NonQM], FHA, VA, USDA, Jumbo
+1. Extract loan type from title: [QM], [NonQM], FHA, VA, USDA, Jumbo, HELOC/HELOAN
+   (HELOC triggers: "HELOC", "HELOAN", "home equity", "2nd lien line", lender in {Spring EQ, Quorum, Figure, Symmetry})
+   MANDATORY for HELOC/HELOAN: read /Users/trungthach/IdeaProjects/moso-docs/HELOC_PARSER_PRIMER.md
+   and inject it as the BA domain-knowledge section. HELOC differs from QM: adjustments go to
+   RATE (margin) not price, grids are FICO x CLTV, HELOC and HELOAN are SEPARATE programs (RateMode),
+   variable products have NO lock periods, margins can be negative, fetch may be URL not email.
 2. Search cookbook for lenders with same type
 3. Rank by similarity:
    - Same loan type = base match

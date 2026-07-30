@@ -28,6 +28,9 @@ The user will provide:
 - Optionally: a Dev Lead report or specific areas to check
 - Optionally: test commands to run
 
+## Step 0: Load Project Knowledge (ALWAYS FIRST)
+Before validating, read `moso-docs/docs/core/INFRASTRUCTURE_INDEX.md` for keyword → path lookups, and the relevant module's `CLAUDE.md`/`moso-docs/docs/*` guide for the conventions being checked. Check `moso-docs/memory/coding-patterns.md` for known pitfalls.
+
 ## QC Process
 
 ### Step 1: Build Verification

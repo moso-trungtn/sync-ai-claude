@@ -18,6 +18,13 @@ Emit at: start of each step, when you find key info, when you identify subtasks.
 ## Your Task
 The user will provide a Jira key (e.g., MOSO-14658). Analyze that Jira issue and produce a development plan.
 
+## Step 0: Load Project Knowledge (ALWAYS FIRST)
+Before investigating the Jira task, ground yourself in the docs:
+1. Read `moso-docs/docs/core/INFRASTRUCTURE_INDEX.md` for keyword → path lookups outside the pricing module.
+2. Check `moso-pricing/docs/parser-patterns.md`, `moso-pricing/docs/adj-*.md`, and `moso-pricing/docs/rate-parser.md` for parser architecture conventions.
+3. Check `moso-pricing/docs/lenders/<lender>.md` if it exists for lender-specific history.
+4. Check `moso-docs/memory/coding-patterns.md` for accumulated parser-fix patterns.
+
 ## Step 1: Fetch Jira Task
 First emit your status, then run this command to fetch the task:
 ```bash

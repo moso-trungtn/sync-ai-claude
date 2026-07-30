@@ -297,6 +297,7 @@ Map every keyword from the ticket to an index section:
 | op, service, DAO, cron | Server Infrastructure |
 | form, view, input, panel | Client Infrastructure |
 | permission, config | Configuration / Auth |
+| HELOC, HELOAN, home equity, margin grid, draw period, CLTV, Prime index | READ /Users/trungthach/IdeaProjects/moso-docs/HELOC_PARSER_PRIMER.md FIRST (2 separate programs, RateMode, rate-based adjustments) + "/Users/trungthach/IdeaProjects/HELOC pricing/heloc-implementation-notes.md" |
 
 For each match → **read the file path directly from the index**. No search needed.
 

@@ -31,6 +31,9 @@ The user will provide one of:
 
 Work with whatever input you receive.
 
+## Step 0: Load Project Knowledge (ALWAYS FIRST)
+Before implementing, check `moso-pricing/docs/parser-patterns.md`, `moso-pricing/docs/adj-*.md`, `moso-pricing/docs/rate-parser.md`, and `moso-pricing/docs/lenders/<lender>.md` (if it exists) for the exact conventions to follow. Use `moso-docs/docs/core/INFRASTRUCTURE_INDEX.md` for anything outside moso-pricing.
+
 ## Implementation Rules
 
 ### Critical Rules (NEVER violate):
