@@ -121,16 +121,19 @@ def _extract_xlsx(path: Path) -> dict:
 def extract(path: Path) -> dict:
     path = Path(path)
     if path.suffix.lower() == ".pdf":
-        return _extract_pdf(path)
+        fp = _extract_pdf(path)
     elif path.suffix.lower() == ".xls":
         # Old binary .xls format cannot be read by openpyxl
-        return {
+        fp = {
             "version": 1, "format": "xls",
             "unextractable": True,
             "banners": [], "structure": [],
             "images": [], "pages": 0,
         }
-    return _extract_xlsx(path)   # Task 3
+    else:
+        fp = _extract_xlsx(path)   # Task 3
+    fp["source"] = path.name
+    return fp
 
 
 def to_json(fp: dict) -> str:
