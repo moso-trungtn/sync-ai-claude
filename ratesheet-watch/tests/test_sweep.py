@@ -78,6 +78,72 @@ def test_looks_like_error_page():
     assert sweep._looks_like_error_page(b"%PDF-1.7\r\n6 0 obj") is False
     assert sweep._looks_like_error_page(b"PK\x03\x04 fake-xlsx-bytes") is False
 
+def test_bad_entry_does_not_kill_sweep(tmp_path, monkeypatch):
+    # Two entries with distinct bytes so they aren't deduped by sha.
+    good, bad = make_entry("GoodLender"), make_entry("BadLender")
+    fps = tmp_path / "fps"; fps.mkdir()
+    data = {"GoodLender": b"%PDF-1.4 good", "BadLender": b"%PDF-1.4 bad"}
+
+    def fetcher(url):
+        return data["GoodLender"] if "GoodLender" in url else data["BadLender"]
+
+    def fake_extract(path):
+        if "BadLender" in str(path):
+            raise RuntimeError("BadZipFile: truncated xlsx")
+        return fake_fp(["GOOD BANNER"])
+    monkeypatch.setattr(sweep.fingerprint, "extract", fake_extract)
+
+    digest = sweep.run_sweep([good, bad], fetcher, tmp_path / "run", fps,
+                             today="20260813")
+
+    assert digest["bootstrapped"] == ["GoodLender__base"]
+    assert digest["errors"] == ["BadLender__base"]
+    assert any("BadLender__base: processing failed" in w for w in digest["warn"])
+    assert (fps / "GoodLender__base.json").exists()
+    assert not (fps / "BadLender__base.json").exists()
+    # state.json and digest.md must still be written despite the failure
+    assert (tmp_path / "run" / "state" / "state.json").exists()
+    assert (tmp_path / "run" / "reports" / "20260813" / "digest.md").exists()
+
+def test_vision_quiet_writes_no_report(tmp_path, monkeypatch):
+    # identical fingerprints on changed bytes → needs_vision → vision finds nothing
+    entry = make_entry()
+    fps = tmp_path / "fps"; fps.mkdir()
+    monkeypatch.setattr(sweep.fingerprint, "extract",
+                        lambda p: fake_fp(["SAME"]))
+    sweep.run_sweep([entry], lambda u: PDF_V1, tmp_path / "r", fps, "20260813")
+    import vision
+    monkeypatch.setattr(vision, "analyze", lambda *a, **k: [])
+    digest = sweep.run_sweep([entry], lambda u: PDF_V2, tmp_path / "r", fps, "20260814")
+    assert digest["unchanged"] == ["TestLender__base"]
+    assert not (tmp_path / "r" / "reports" / "20260814" / "TestLender__base.md").exists()
+    state = json.loads((tmp_path / "r" / "state" / "state.json").read_text())
+    assert state["TestLender__base"]["reported_sha"] == ""
+
+def test_vision_low_materiality_only_writes_no_report(tmp_path, monkeypatch):
+    entry = make_entry()
+    fps = tmp_path / "fps"; fps.mkdir()
+    monkeypatch.setattr(sweep.fingerprint, "extract",
+                        lambda p: fake_fp(["SAME"]))
+    sweep.run_sweep([entry], lambda u: PDF_V1, tmp_path / "r", fps, "20260813")
+    import vision
+    monkeypatch.setattr(vision, "analyze", lambda *a, **k: [
+        {"kind": "LAYOUT", "summary": "minor spacing tweak",
+         "quote": "", "materiality": "low"}])
+    digest = sweep.run_sweep([entry], lambda u: PDF_V2, tmp_path / "r", fps, "20260814")
+    assert digest["unchanged"] == ["TestLender__base"]
+    assert not (tmp_path / "r" / "reports" / "20260814" / "TestLender__base.md").exists()
+
+def test_adhoc_digest_name_does_not_clobber(tmp_path):
+    entry = make_entry()
+    fps = tmp_path / "fps"; fps.mkdir()
+    sweep.run_sweep([entry], lambda u: PDF_V1, tmp_path / "r", fps, "20260813")
+    sweep.run_sweep([entry], lambda u: PDF_V1, tmp_path / "r", fps, "20260813",
+                    digest_name="digest-adhoc.md")
+    reports_dir = tmp_path / "r" / "reports" / "20260813"
+    assert (reports_dir / "digest.md").exists()
+    assert (reports_dir / "digest-adhoc.md").exists()
+
 def test_fetch_failure_counts(tmp_path):
     fps = tmp_path / "fps"; fps.mkdir()
     entry = make_entry()

@@ -51,19 +51,27 @@ def _prev_cached(root: Path, key: str, ext: str, today: str) -> Path | None:
     return None
 
 
-def _vision_section(e, local: Path, root: Path, today: str,
-                    reports_dir: Path) -> str:
+def _vision_findings(e, local: Path, root: Path, today: str,
+                     reports_dir: Path):
+    """Run the vision fallback. Returns (findings, error) — findings is a
+    list of finding dicts on success, error is the raised exception on
+    failure. Vision must never kill the sweep, so callers get the
+    exception back instead of it propagating."""
     try:
         import vision
         findings = vision.analyze(_prev_cached(root, e.key, e.ext, today),
                                   local, reports_dir / f"{e.key}-vision")
-        lines = ["", "## Vision findings", ""]
-        for f in findings:
-            lines.append(f"- **{f['kind']}** ({f['materiality']}): "
-                         f"{f['summary']} — quote: `{f['quote']}`")
-        return "\n".join(lines) + "\n"
-    except Exception as ex:                       # vision must never kill sweep
-        return f"\n## Vision failed\n\n{ex}\n"
+        return findings, None
+    except Exception as ex:
+        return None, ex
+
+
+def _vision_section_md(findings) -> str:
+    lines = ["", "## Vision findings", ""]
+    for f in findings:
+        lines.append(f"- **{f['kind']}** ({f['materiality']}): "
+                     f"{f['summary']} — quote: `{f['quote']}`")
+    return "\n".join(lines) + "\n"
 
 
 def _report_md(key: str, changes, needs_vision: bool) -> str:
@@ -77,7 +85,8 @@ def _report_md(key: str, changes, needs_vision: bool) -> str:
 
 
 def run_sweep(entries, fetcher, root: Path, fingerprints_dir: Path,
-              today: str, bootstrap: bool = False) -> dict:
+              today: str, bootstrap: bool = False,
+              digest_name: str = "digest.md") -> dict:
     root = Path(root)
     state_file = root / "state" / "state.json"
     reports_dir = root / "reports" / today
@@ -115,33 +124,62 @@ def run_sweep(entries, fetcher, root: Path, fingerprints_dir: Path,
                 digest["unchanged"].append(e.key)
             continue
 
-        local = cache_dir / f"{e.key}{e.ext}"
-        local.write_bytes(data)
-        fp_new = fingerprint.extract(local)
-        fp_file = fingerprints_dir / f"{e.key}.json"
+        try:
+            local = cache_dir / f"{e.key}{e.ext}"
+            local.write_bytes(data)
+            fp_new = fingerprint.extract(local)
+            fp_file = fingerprints_dir / f"{e.key}.json"
 
-        if bootstrap or not fp_file.exists():
-            fp_file.write_text(fingerprint.to_json(fp_new))
-            digest["bootstrapped"].append(e.key)
-        else:
-            fp_old = json.loads(fp_file.read_text())
-            changes = fpdiff.diff(fp_old, fp_new)
-            vision = fpdiff.needs_vision(fp_old, fp_new, changes)
-            if changes or vision:
-                if st.get("reported_sha") == sha:
-                    digest["pending"].append(e.key)
-                else:
-                    report = _report_md(e.key, changes, vision)
-                    if vision:
-                        report += _vision_section(e, local, root, today,
-                                                  reports_dir)
-                    (reports_dir / f"{e.key}.md").write_text(report)
-                    st["reported_sha"] = sha
-                    digest["changed"].append(e.key)
+            if bootstrap or not fp_file.exists():
+                fp_file.write_text(fingerprint.to_json(fp_new))
+                digest["bootstrapped"].append(e.key)
             else:
-                digest["unchanged"].append(e.key)
+                fp_old = json.loads(fp_file.read_text())
+                changes = fpdiff.diff(fp_old, fp_new)
+                needs_vision = fpdiff.needs_vision(fp_old, fp_new, changes)
 
-        st["sha"], st["date"] = sha, today
+                report = None
+                if changes:
+                    # Text fingerprint already found something material —
+                    # report now; append a vision section if also flagged.
+                    report = _report_md(e.key, changes, needs_vision)
+                    if needs_vision:
+                        findings, verr = _vision_findings(
+                            e, local, root, today, reports_dir)
+                        report += (f"\n## Vision failed\n\n{verr}\n"
+                                  if verr is not None
+                                  else _vision_section_md(findings))
+                elif needs_vision:
+                    # Bytes changed but the text fingerprint is silent —
+                    # materiality gate: run vision FIRST and only report
+                    # if it actually found something worth a human's time.
+                    # An exception stays fail-visible (write the report).
+                    findings, verr = _vision_findings(
+                        e, local, root, today, reports_dir)
+                    if verr is not None:
+                        report = _report_md(e.key, changes, needs_vision)
+                        report += f"\n## Vision failed\n\n{verr}\n"
+                    elif any(f.get("materiality") != "low" for f in findings):
+                        report = _report_md(e.key, changes, needs_vision)
+                        report += _vision_section_md(findings)
+                    # else: vision found nothing material — stay quiet,
+                    # no report, no reported_sha, counts as unchanged below.
+
+                if report is not None:
+                    if st.get("reported_sha") == sha:
+                        digest["pending"].append(e.key)
+                    else:
+                        (reports_dir / f"{e.key}.md").write_text(report)
+                        st["reported_sha"] = sha
+                        digest["changed"].append(e.key)
+                else:
+                    digest["unchanged"].append(e.key)
+
+            st["sha"], st["date"] = sha, today
+        except Exception as ex:
+            digest["errors"].append(e.key)
+            digest["warn"].append(f"{e.key}: processing failed: {ex}")
+            continue
 
     state_file.write_text(json.dumps(state, sort_keys=True, indent=2))
     md = [f"# Sweep digest {today}", ""]
@@ -151,7 +189,7 @@ def run_sweep(entries, fetcher, root: Path, fingerprints_dir: Path,
                   + (", ".join(digest[bucket]) or "—"))
     for w in digest["warn"]:
         md.append(f"- ⚠️ {w}")
-    (reports_dir / "digest.md").write_text("\n".join(md) + "\n")
+    (reports_dir / digest_name).write_text("\n".join(md) + "\n")
     return digest
 
 
@@ -175,7 +213,10 @@ if __name__ == "__main__":
         entries = [e for e in entries if e.lender in wanted]
 
     Path(args.fingerprints).mkdir(parents=True, exist_ok=True)
+    # An adhoc run (--lenders and/or --bootstrap) must not clobber today's
+    # digest from the morning full sweep.
+    digest_name = "digest-adhoc.md" if (args.lenders or args.bootstrap) else "digest.md"
     digest = run_sweep(entries, http_fetcher, Path(args.root),
                        Path(args.fingerprints), date.today().strftime("%Y%m%d"),
-                       bootstrap=args.bootstrap)
+                       bootstrap=args.bootstrap, digest_name=digest_name)
     print(json.dumps(digest, indent=2))
