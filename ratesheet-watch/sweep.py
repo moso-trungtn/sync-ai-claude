@@ -1,18 +1,25 @@
 """Daily ratesheet sweep: SHA gate → fingerprint diff → reports + digest."""
 from __future__ import annotations
-import argparse, hashlib, json, time, urllib.request
+import argparse, hashlib, json, ssl, time, urllib.request
 from datetime import date
 from pathlib import Path
 
+import certifi
 import fingerprint, fpdiff, registry
 
 TOOL_ROOT = Path(__file__).resolve().parent
+
+# macOS framework/venv Pythons often ship without a usable system CA bundle,
+# which makes urlopen() fail with CERTIFICATE_VERIFY_FAILED against GCS.
+# Use certifi's bundle explicitly instead of relying on env (SSL_CERT_FILE),
+# which cron's minimal environment won't have set.
+_SSL_CTX = ssl.create_default_context(cafile=certifi.where())
 
 
 def http_fetcher(url: str) -> bytes | None:
     for _ in range(2):
         try:
-            with urllib.request.urlopen(url, timeout=60) as r:
+            with urllib.request.urlopen(url, timeout=60, context=_SSL_CTX) as r:
                 return r.read()
         except Exception:
             time.sleep(2)
