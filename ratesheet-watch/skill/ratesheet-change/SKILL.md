@@ -37,9 +37,20 @@ Input: path to a change report (`reports/<date>/<key>.md`) produced by
 7. **QC**: run BOTH RateParserTest and AdjustmentParsersTest for the
    lender. Up to 3 fix iterations. Still failing → comment failure output
    on the Jira task, add label `needs-human`, STOP (leave branch).
-8. **Acknowledge**: re-run `tools/ratesheet-watch/.venv/bin/python
-   sweep.py --lenders <Lender> --bootstrap` so the fingerprint matches the
-   handled sheet; git-add the fingerprint.
+8. **Acknowledge**: fingerprint the JUST-COMMITTED resource file directly —
+   NOT via `sweep.py --bootstrap`, which pulls from GCS and stamps a
+   cache-style `source` name that never matches a committed ratesheet
+   resource, leaving the packs `RatesheetFingerprintTest` guard skipped
+   forever for that lender. After `download-ratesheet.sh` has placed the
+   new sheet in `packs/loan/src/test/resources/ratesheets/`, run:
+   ```
+   /Users/trungthach/IdeaProjects/tools/ratesheet-watch/.venv/bin/python \
+     /Users/trungthach/IdeaProjects/tools/ratesheet-watch/fingerprint.py \
+     <that resource file> \
+     -o /Users/trungthach/IdeaProjects/packs/loan/src/test/resources/fingerprints/<key>.json
+   ```
+   then git-add the fingerprint. This makes `source` a real resource name
+   and activates the guard test for that lender.
 9. **Commit** on the branch — ONE commit:
    `MOSO-<key>: <lender> ratesheet update — <short change summary>`.
    No Co-Authored-By. Do NOT push, do NOT merge.

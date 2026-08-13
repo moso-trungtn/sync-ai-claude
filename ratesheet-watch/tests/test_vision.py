@@ -33,6 +33,32 @@ def test_analyze_parses_and_guards_quotes(tmp_path):
     kinds = [c["kind"] for c in out]
     assert kinds == ["PROMO_NEW", "MANUAL_REVIEW"]
 
+def test_analyze_promo_expired_verifies_against_old_images(tmp_path):
+    old = tmp_path / "o.pdf"; old.write_bytes(b"%PDF-1.4 old")
+    new = tmp_path / "n.pdf"; new.write_bytes(b"%PDF-1.4 new")
+    old_imgs = [tmp_path / "old1.png"]
+    new_imgs = [tmp_path / "new1.png"]
+
+    def fake_runner(prompt, images):
+        if prompt.startswith("Is the exact text"):
+            # The expired promo's quote only exists in the OLD images —
+            # verifying against new_imgs must fail, against old_imgs must pass.
+            return "YES" if images == old_imgs else "NO"
+        return json.dumps([
+            {"kind": "PROMO_EXPIRED", "summary": "promo removed",
+             "quote": "Rate Special ends soon", "materiality": "high"},
+        ])
+
+    orig_render = vision.render
+    vision.render = lambda f, o: old_imgs if f == old else new_imgs
+    try:
+        out = vision.analyze(old, new, tmp_path, runner=fake_runner)
+    finally:
+        vision.render = orig_render
+
+    assert out == [{"kind": "PROMO_EXPIRED", "summary": "promo removed",
+                    "quote": "Rate Special ends soon", "materiality": "high"}]
+
 def test_analyze_no_images_returns_manual_review(tmp_path):
     new = tmp_path / "n.xls"; new.write_bytes(b"\xd0\xcf\x11\xe0")
     out = vision.analyze(None, new, tmp_path, runner=lambda p, i: "[]")

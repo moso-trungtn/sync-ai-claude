@@ -68,8 +68,13 @@ def analyze(old_file, new_file: Path, workdir: Path, runner=None) -> list[dict]:
              "summary": c.get("summary", ""), "quote": c.get("quote", ""),
              "materiality": c.get("materiality", "medium")}
         if c["kind"].startswith("PROMO"):
+            # An expired promo's quote is only visible in the OLD images —
+            # verifying it against new_imgs always fails and downgrades a
+            # correct finding to MANUAL_REVIEW. Verify against whichever
+            # image set the quote should actually appear in.
+            verify_imgs = old_imgs if c["kind"] == "PROMO_EXPIRED" and old_imgs else new_imgs
             verdict = "" if not c["quote"] else runner(
-                VERIFY_PROMPT.format(quote=c["quote"]), new_imgs)
+                VERIFY_PROMPT.format(quote=c["quote"]), verify_imgs)
             if "YES" not in verdict.upper():
                 c["kind"] = "MANUAL_REVIEW"
         out.append(c)
