@@ -16,6 +16,7 @@ REPORTS="$DIR/reports/$DATE"
 [ -d "$REPORTS" ] || { echo "no reports for $DATE"; exit 0; }
 
 for report in "$REPORTS"/*.md; do
+  [ -e "$report" ] || continue
   base=$(basename "$report")
   [ "$base" = "digest.md" ] && continue
   if $LIVE; then
