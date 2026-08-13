@@ -56,6 +56,21 @@ def test_shared_sha_dedupe(tmp_path):
     assert digest["bootstrapped"] == ["LenderA__base"]
     assert digest["duplicates"] == ["LenderB__base"]
 
+def test_vision_failure_does_not_kill_sweep(tmp_path, monkeypatch):
+    # identical fingerprints on changed bytes → needs_vision → vision raises
+    entry = make_entry()
+    fps = tmp_path / "fps"; fps.mkdir()
+    monkeypatch.setattr(sweep.fingerprint, "extract",
+                        lambda p: fake_fp(["SAME"]))
+    sweep.run_sweep([entry], lambda u: PDF_V1, tmp_path / "r", fps, "20260813")
+    import vision
+    monkeypatch.setattr(vision, "analyze",
+                        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
+    digest = sweep.run_sweep([entry], lambda u: PDF_V2, tmp_path / "r", fps, "20260814")
+    assert digest["changed"] == ["TestLender__base"]
+    report = (tmp_path / "r" / "reports" / "20260814" / "TestLender__base.md").read_text()
+    assert "Vision failed" in report
+
 def test_fetch_failure_counts(tmp_path):
     fps = tmp_path / "fps"; fps.mkdir()
     entry = make_entry()

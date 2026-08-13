@@ -23,6 +23,30 @@ def _load_json(p: Path, default):
     return json.loads(p.read_text()) if p.exists() else default
 
 
+def _prev_cached(root: Path, key: str, ext: str, today: str) -> Path | None:
+    days = sorted(d.name for d in (root / "cache").glob("*") if d.name < today)
+    for day in reversed(days):
+        p = root / "cache" / day / f"{key}{ext}"
+        if p.exists():
+            return p
+    return None
+
+
+def _vision_section(e, local: Path, root: Path, today: str,
+                    reports_dir: Path) -> str:
+    try:
+        import vision
+        findings = vision.analyze(_prev_cached(root, e.key, e.ext, today),
+                                  local, reports_dir / f"{e.key}-vision")
+        lines = ["", "## Vision findings", ""]
+        for f in findings:
+            lines.append(f"- **{f['kind']}** ({f['materiality']}): "
+                         f"{f['summary']} — quote: `{f['quote']}`")
+        return "\n".join(lines) + "\n"
+    except Exception as ex:                       # vision must never kill sweep
+        return f"\n## Vision failed\n\n{ex}\n"
+
+
 def _report_md(key: str, changes, needs_vision: bool) -> str:
     lines = [f"# Change report — {key}", ""]
     for c in changes:
@@ -88,8 +112,11 @@ def run_sweep(entries, fetcher, root: Path, fingerprints_dir: Path,
                 if st.get("reported_sha") == sha:
                     digest["pending"].append(e.key)
                 else:
-                    (reports_dir / f"{e.key}.md").write_text(
-                        _report_md(e.key, changes, vision))
+                    report = _report_md(e.key, changes, vision)
+                    if vision:
+                        report += _vision_section(e, local, root, today,
+                                                  reports_dir)
+                    (reports_dir / f"{e.key}.md").write_text(report)
                     st["reported_sha"] = sha
                     digest["changed"].append(e.key)
             else:
