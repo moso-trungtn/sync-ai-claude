@@ -62,3 +62,29 @@ def test_registry_against_real_repo_files():
     entries = registry.load_registry(lt, rf)
     assert len(entries) > 80  # ~178 constants collapse to latest-per-variant
     assert any(e.lender == "HomeBridgeWholesale" for e in entries)
+    # section headers with spaces ("AAA Lendings") must still resolve to
+    # their no-space enum name (AAALendings) — regression for the silent
+    # coverage gap where these lenders produced zero registry entries.
+    assert any(e.lender == "AAALendings" for e in entries)
+
+
+SPACED_SECTION_RATESHEET_FILES_JAVA = """\
+public class RatesheetFiles {
+  // ── AAA Lendings ────────────────────────────────────
+  public static final String AAA_LENDINGS_20260812 = "/ratesheets/aaa_lendings_20260812.pdf";
+}
+"""
+
+SPACED_SECTION_LENDER_TYPE_JAVA = """\
+public enum LenderType {
+  AAALendings(99L, "AAA Lendings"),
+}
+"""
+
+def test_registry_resolves_spaced_section_header_to_enum(tmp_path):
+    lt = write(tmp_path, "LenderType.java", SPACED_SECTION_LENDER_TYPE_JAVA)
+    rf = write(tmp_path, "RatesheetFiles.java", SPACED_SECTION_RATESHEET_FILES_JAVA)
+    entries = registry.load_registry(lt, rf)
+    keys = {e.key: e for e in entries}
+    assert "AAALendings__base" in keys
+    assert keys["AAALendings__base"].latest_resource == "/ratesheets/aaa_lendings_20260812.pdf"

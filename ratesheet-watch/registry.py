@@ -18,9 +18,20 @@ PILOT_LENDERS = [
 ]
 
 ENUM_RE = re.compile(r"^\s{2}([A-Za-z][A-Za-z0-9]*)\(", re.M)
-SECTION_RE = re.compile(r"^\s*//\s*─+\s*([A-Za-z0-9]+)\s*─+", re.M)
+SECTION_RE = re.compile(r"^\s*//\s*─+\s*([A-Za-z0-9][A-Za-z0-9 ]*?)\s*─+", re.M)
 CONST_RE = re.compile(
     r'public static final String\s+([A-Z0-9_]+)\s*=\s*"(/ratesheets/[^"]+)"')
+
+
+def _normalize(name: str) -> str:
+    return name.lower().replace(" ", "")
+
+
+def _resolve_enum(section_name: str, enums_by_norm: dict[str, str]) -> str | None:
+    """Match a section header (may contain spaces, e.g. "AAA Lendings") to
+    its enum name (e.g. "AAALendings") by normalized (lowercase, no-space)
+    comparison. Returns None if no enum matches (rename drift — drop it)."""
+    return enums_by_norm.get(_normalize(section_name))
 
 
 @dataclass
@@ -59,15 +70,17 @@ def _variant_of(const_name: str) -> str:
 
 def load_registry(lender_type_java: str | Path, ratesheet_files_java: str | Path) -> list[Entry]:
     enums = set(ENUM_RE.findall(Path(lender_type_java).read_text()))
+    enums_by_norm = {_normalize(e): e for e in enums}
     text = Path(ratesheet_files_java).read_text()
 
-    # Split into sections; a section header names the lender enum.
+    # Split into sections; a section header names the lender enum (headers
+    # may contain spaces, e.g. "AAA Lendings" for enum AAALendings).
     entries: dict[tuple[str, str], Entry] = {}
     sections = list(SECTION_RE.finditer(text))
     for i, sec in enumerate(sections):
-        lender = sec.group(1)
-        if lender not in enums:
-            continue  # section name not an enum (rename drift) — skip
+        lender = _resolve_enum(sec.group(1), enums_by_norm)
+        if lender is None:
+            continue  # section name doesn't match any enum (rename drift) — skip
         end = sections[i + 1].start() if i + 1 < len(sections) else len(text)
         for const_name, resource in CONST_RE.findall(text[sec.end():end]):
             variant = _variant_of(const_name)

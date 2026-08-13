@@ -71,6 +71,13 @@ def test_vision_failure_does_not_kill_sweep(tmp_path, monkeypatch):
     report = (tmp_path / "r" / "reports" / "20260814" / "TestLender__base.md").read_text()
     assert "Vision failed" in report
 
+def test_looks_like_error_page():
+    assert sweep._looks_like_error_page(b"") is True
+    assert sweep._looks_like_error_page(b"<html><body>Redirect Error</body></html>") is True
+    assert sweep._looks_like_error_page(b"  \n<?xml version=\"1.0\"?><Error/>") is True
+    assert sweep._looks_like_error_page(b"%PDF-1.7\r\n6 0 obj") is False
+    assert sweep._looks_like_error_page(b"PK\x03\x04 fake-xlsx-bytes") is False
+
 def test_fetch_failure_counts(tmp_path):
     fps = tmp_path / "fps"; fps.mkdir()
     entry = make_entry()

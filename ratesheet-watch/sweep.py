@@ -16,11 +16,23 @@ TOOL_ROOT = Path(__file__).resolve().parent
 _SSL_CTX = ssl.create_default_context(cafile=certifi.where())
 
 
+def _looks_like_error_page(data: bytes) -> bool:
+    """GCS returns HTTP 200 with an HTML/XML error/redirect body for some
+    missing objects instead of a real 404. Treat empty or markup-looking
+    bodies as a failed fetch rather than fingerprinting the error page."""
+    if not data:
+        return True
+    return data.lstrip()[:1] == b"<"
+
+
 def http_fetcher(url: str) -> bytes | None:
     for _ in range(2):
         try:
             with urllib.request.urlopen(url, timeout=60, context=_SSL_CTX) as r:
-                return r.read()
+                data = r.read()
+                if _looks_like_error_page(data):
+                    return None
+                return data
         except Exception:
             time.sleep(2)
     return None
