@@ -45,15 +45,19 @@ def diff(old: dict, new: dict) -> list[Change]:
 
     s_old, s_new = set(old["structure"]), set(new["structure"])
     s_added, s_removed = sorted(s_new - s_old), sorted(s_old - s_new)
+    churn = ((len(s_added) + len(s_removed)) / max(1, len(s_old))) if (s_added or s_removed) else 0
 
-    if new.get("pages") != old.get("pages"):
-        churn = ((len(s_added) + len(s_removed)) / max(1, len(s_old))) if (s_added or s_removed) else 0
+    # Report LAYOUT if pages changed or if structure has high churn on large sheets
+    layout = (new.get("pages") != old.get("pages")
+              or (len(s_old) >= 10 and churn > LAYOUT_CHURN))
+
+    if layout:
         changes.append(Change(
             "LAYOUT",
             f"pages {old.get('pages')}→{new.get('pages')}, "
             f"structure churn {churn:.0%}", "medium"))
     else:
-        # Pages are the same, report individual STRUCTURE changes
+        # Pages are the same and structure is small/stable, report individual STRUCTURE changes
         for s in s_added:
             changes.append(Change(_promo_kind(s, "STRUCTURE"), f"+ {s}", "medium"))
         for s in s_removed:

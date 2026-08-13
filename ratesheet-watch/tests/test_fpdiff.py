@@ -58,3 +58,15 @@ def test_unextractable_transition():
     changes = fpdiff.diff(BASE, new)
     assert "UNEXTRACTABLE" in kinds(changes)
     assert fpdiff.needs_vision(BASE, new, changes) is True
+
+def test_big_structure_churn_is_layout():
+    # Large structure (20 lines) with high churn (60% changed) triggers LAYOUT
+    old_structure = [f"row{i}" for i in range(20)]
+    new_structure = (list(old_structure[12:]) +  # Keep rows 12-19
+                     [f"newrow{i}" for i in range(12)])  # Replace rows 0-11 with new rows
+    big = fp(banners=BASE["banners"], structure=new_structure)
+    old_big = fp(banners=BASE["banners"], structure=old_structure)
+    changes = fpdiff.diff(old_big, big)
+    assert "LAYOUT" in kinds(changes)
+    # With LAYOUT triggered, no individual STRUCTURE changes reported
+    assert "STRUCTURE" not in kinds(changes)
