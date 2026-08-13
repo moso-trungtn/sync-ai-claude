@@ -5,7 +5,7 @@ kept verbatim, dates masked) from TABULAR content (rates/adjustments —
 numbers masked so daily rate moves never diff).
 """
 from __future__ import annotations
-import argparse, json, re, subprocess
+import argparse, hashlib, json, re, subprocess, zipfile
 from pathlib import Path
 
 NUM_RE = re.compile(r"^[<>=~+\-(]*\$?\d[\d,]*\.?\d*%?\)?$")
@@ -66,14 +66,69 @@ def _extract_pdf(path: Path) -> dict:
     }
 
 
+def embedded_images(path: Path) -> list[tuple[str, bytes]]:
+    out = []
+    with zipfile.ZipFile(path) as z:
+        for name in sorted(z.namelist()):
+            if name.startswith("xl/media/"):
+                out.append((name, z.read(name)))
+    return out
+
+
 def _extract_xlsx(path: Path) -> dict:
-    raise NotImplementedError
+    import openpyxl
+    wb = openpyxl.load_workbook(path, read_only=False, data_only=True)
+    forced_banners, lines = set(), []
+    for ws in wb.worksheets:
+        if ws.sheet_state != "visible":
+            continue
+        merged_wide = set()
+        for rng in ws.merged_cells.ranges:
+            if rng.max_col - rng.min_col + 1 >= 4:
+                merged_wide.add((rng.min_row, rng.min_col))
+        for row in ws.iter_rows():
+            for cell in row:
+                if cell.value is None:
+                    continue
+                text = _collapse(str(cell.value))
+                if not text:
+                    continue
+                tagged = f"{ws.title}: {text}"
+                fill = cell.fill
+                filled = (fill is not None and fill.patternType == "solid"
+                          and getattr(fill.fgColor, "rgb", None)
+                          not in (None, "00000000", "FFFFFFFF"))
+                is_banner_cell = ((cell.row, cell.column) in merged_wide
+                                  or (filled and len(text) >= MIN_BANNER_LEN))
+                if is_banner_cell and not _is_numeric_line(text):
+                    forced_banners.add(_mask_dates(tagged))
+                else:
+                    lines.append(tagged)
+    banners, structure = _classify_lines(lines)
+    banners = sorted(set(banners) | forced_banners)
+    img_hashes = sorted(hashlib.sha1(b).hexdigest()
+                        for _, b in embedded_images(path))
+    return {
+        "version": 1, "format": "xlsx",
+        "unextractable": not banners and not structure,
+        "banners": banners, "structure": structure,
+        "images": img_hashes,
+        "pages": sum(1 for ws in wb.worksheets if ws.sheet_state == "visible"),
+    }
 
 
 def extract(path: Path) -> dict:
     path = Path(path)
     if path.suffix.lower() == ".pdf":
         return _extract_pdf(path)
+    elif path.suffix.lower() == ".xls":
+        # Old binary .xls format cannot be read by openpyxl
+        return {
+            "version": 1, "format": "xls",
+            "unextractable": True,
+            "banners": [], "structure": [],
+            "images": [], "pages": 0,
+        }
     return _extract_xlsx(path)   # Task 3
 
 
