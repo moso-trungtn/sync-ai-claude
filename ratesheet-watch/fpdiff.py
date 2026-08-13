@@ -59,9 +59,11 @@ def diff(old: dict, new: dict) -> list[Change]:
     else:
         # Pages are the same and structure is small/stable, report individual STRUCTURE changes
         for s in s_added:
-            changes.append(Change(_promo_kind(s, "STRUCTURE"), f"+ {s}", "medium"))
+            kind = _promo_kind(s, "STRUCTURE")
+            changes.append(Change(kind, f"+ {s}", "high" if kind == "PROGRAM" else "medium"))
         for s in s_removed:
-            changes.append(Change(_promo_kind(s, "STRUCTURE"), f"- {s}", "medium"))
+            kind = _promo_kind(s, "STRUCTURE")
+            changes.append(Change(kind, f"- {s}", "high" if kind == "PROGRAM" else "medium"))
 
     if sorted(old.get("images", [])) != sorted(new.get("images", [])):
         changes.append(Change("IMAGE_CHANGED",

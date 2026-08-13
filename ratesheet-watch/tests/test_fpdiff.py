@@ -35,7 +35,18 @@ def test_similar_add_remove_collapses_to_promo_changed():
 def test_program_keyword_overrides_kind():
     new = fp(banners=BASE["banners"] + ["FHA Special pricing now available"],
              structure=BASE["structure"])
-    assert kinds(fpdiff.diff(BASE, new)) == ["PROGRAM"]
+    changes = fpdiff.diff(BASE, new)
+    assert kinds(changes) == ["PROGRAM"]
+    assert changes[0].materiality == "high"
+
+def test_program_keyword_in_structure():
+    # PROGRAM keywords in structure lines also carry high materiality
+    new = fp(banners=BASE["banners"],
+             structure=BASE["structure"] + ["FHA High Balance adjustment #"])
+    changes = fpdiff.diff(BASE, new)
+    assert "PROGRAM" in kinds(changes)
+    program_change = [c for c in changes if c.kind == "PROGRAM"][0]
+    assert program_change.materiality == "high"
 
 def test_structure_and_layout():
     new = fp(banners=BASE["banners"], structure=["# # # #", "DTI > # adjustment #"])
@@ -60,7 +71,7 @@ def test_unextractable_transition():
     assert fpdiff.needs_vision(BASE, new, changes) is True
 
 def test_big_structure_churn_is_layout():
-    # Large structure (20 lines) with high churn (60% changed) triggers LAYOUT
+    # Large structure (20 lines) with high churn (120% changed) triggers LAYOUT
     old_structure = [f"row{i}" for i in range(20)]
     new_structure = (list(old_structure[12:]) +  # Keep rows 12-19
                      [f"newrow{i}" for i in range(12)])  # Replace rows 0-11 with new rows
