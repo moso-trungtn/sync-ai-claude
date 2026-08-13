@@ -85,6 +85,7 @@ def _extract_xlsx(path: Path) -> dict:
         merged_wide = set()
         for rng in ws.merged_cells.ranges:
             if rng.max_col - rng.min_col + 1 >= 4:
+                # Key by anchor only; non-anchor cells have value=None in openpyxl
                 merged_wide.add((rng.min_row, rng.min_col))
         for row in ws.iter_rows():
             for cell in row:

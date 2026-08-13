@@ -50,3 +50,17 @@ def test_xls_unextractable(tmp_path):
     assert fp["unextractable"] is True
     assert fp["banners"] == []
     assert fp["structure"] == []
+
+def test_numeric_merged_cell_is_structure_not_banner(tmp_path):
+    """Numeric content in wide merged cells (≥4 cols) goes to structure, not banners."""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.merge_cells("A1:F1")
+    ws["A1"] = "6.125 6.250 6.375"  # numeric line spanning 6 columns
+    p = tmp_path / "merged_numeric.xlsx"
+    wb.save(p)
+    fp = fingerprint.extract(p)
+    # Should not appear in banners (numeric content)
+    assert not any("6.125" in b for b in fp["banners"])
+    # Should appear in structure with masked numbers
+    assert any("#" in s for s in fp["structure"])
