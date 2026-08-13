@@ -88,3 +88,11 @@ def test_registry_resolves_spaced_section_header_to_enum(tmp_path):
     keys = {e.key: e for e in entries}
     assert "AAALendings__base" in keys
     assert keys["AAALendings__base"].latest_resource == "/ratesheets/aaa_lendings_20260812.pdf"
+
+
+def test_email_only_lenders_declared():
+    assert "HomeBridgeWholesale" in registry.EMAIL_ONLY_LENDERS
+    assert registry.EMAIL_ONLY_LENDERS <= set(registry.PILOT_LENDERS) | {
+        e.lender for e in registry.load_registry(
+            Path("/Users/trungthach/IdeaProjects/packs/quote/src/main/java/com/mvu/quote/shared/typekey/LenderType.java"),
+            Path("/Users/trungthach/IdeaProjects/packs/loan/src/test/java/com/mvu/loan/RatesheetFiles.java"))}

@@ -212,6 +212,13 @@ if __name__ == "__main__":
         wanted = set(args.lenders.split(","))
         entries = [e for e in entries if e.lender in wanted]
 
+    skipped_email_only = sorted({e.lender for e in entries
+                                 if e.lender in registry.EMAIL_ONLY_LENDERS})
+    entries = [e for e in entries
+               if e.lender not in registry.EMAIL_ONLY_LENDERS]
+    if skipped_email_only:
+        print(f"email-only (not watched via GCS): {', '.join(skipped_email_only)}")
+
     Path(args.fingerprints).mkdir(parents=True, exist_ok=True)
     # An adhoc run (--lenders and/or --bootstrap) must not clobber today's
     # digest from the morning full sweep.

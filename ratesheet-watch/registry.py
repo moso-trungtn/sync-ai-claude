@@ -17,6 +17,13 @@ PILOT_LENDERS = [
     "AmWestFunding", "CommunityWholesaleLending",
 ]
 
+# Lenders whose ratesheets never land on GCS under the standard naming —
+# they arrive by email attachment or a Selenium portal run (email-triggered).
+# The GCS sweep skips them; watching them needs an email-side hook (MOSO-16995).
+EMAIL_ONLY_LENDERS = {
+    "HomeBridgeWholesale",
+}
+
 ENUM_RE = re.compile(r"^\s{2}([A-Za-z][A-Za-z0-9]*)\(", re.M)
 SECTION_RE = re.compile(r"^\s*//\s*─+\s*([A-Za-z0-9][A-Za-z0-9 ]*?)\s*─+", re.M)
 CONST_RE = re.compile(
