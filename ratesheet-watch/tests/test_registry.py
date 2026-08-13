@@ -21,6 +21,7 @@ public class RatesheetFiles {
 
   // ── Freedom ─────────────────────────────────────────
   public static final String FREEDOM_ZONE1_0304 = "/ratesheets/freedom_zone1_20260304.xlsx";
+  public static final String FREEDOM_ADJUSTMENT_0304 = "/ratesheets/freedom_adjustment_20260304.xlsx";
 }
 """
 
@@ -50,6 +51,10 @@ def test_registry_entries(tmp_path):
     # zone variant
     z = keys["Freedom__zone1"]
     assert z.gcs_url(123000).endswith("/Freedom_Zone%201.xlsx?v=123000")
+
+    # adj variant
+    adj = keys["Freedom__adj"]
+    assert adj.gcs_url(123000).endswith("/Freedom__adjustment_.xlsx?v=123000")
 
 def test_registry_against_real_repo_files():
     lt = Path("/Users/trungthach/IdeaProjects/packs/quote/src/main/java/com/mvu/quote/shared/typekey/LenderType.java")

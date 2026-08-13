@@ -7,7 +7,7 @@ within a section are ordered oldest→newest, so last one wins.
 """
 from __future__ import annotations
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 GCS_BASE = "https://storage.googleapis.com/lender-rate-ratesheet"
@@ -57,7 +57,7 @@ def _variant_of(const_name: str) -> str:
     return "base"
 
 
-def load_registry(lender_type_java, ratesheet_files_java) -> list[Entry]:
+def load_registry(lender_type_java: str | Path, ratesheet_files_java: str | Path) -> list[Entry]:
     enums = set(ENUM_RE.findall(Path(lender_type_java).read_text()))
     text = Path(ratesheet_files_java).read_text()
 
