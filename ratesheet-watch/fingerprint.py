@@ -14,7 +14,13 @@ DATE_RE = re.compile(
     r"\b(January|February|March|April|May|June|July|August|September|"
     r"October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|"
     r"Nov|Dec)\b\.?\s*\d{0,2}(st|nd|rd|th)?,?\s*\d{0,4}"
-    r"|\b\d{1,2}/\d{1,2}(/\d{2,4})?\b", re.I)
+    r"|\b\d{1,2}/\d{1,2}(/\d{2,4})?\b"
+    # ISO dates and timestamps: 2026-08-12 or 2026-08-12 07:52:58.790000
+    r"|\b\d{4}-\d{2}-\d{2}(?:[ T]\d{1,2}:\d{2}(?::\d{2})?(?:\.\d+)?)?\b"
+    # Clock times: 09:03:40 AM PDT, 6:00 PM PDT — anchored so ratios like
+    # "10:1" (single digit after the colon) never match.
+    r"|\b\d{1,2}:\d{2}(?::\d{2})?(?:\.\d+)?\s*(?:[AP]M)?(?:\s*[A-Z]{2,4}T)?\b",
+    re.I)
 MIN_TEXT_CHARS = 200
 MIN_BANNER_LEN = 12
 
