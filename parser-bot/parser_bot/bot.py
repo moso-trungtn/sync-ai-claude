@@ -31,11 +31,26 @@ class Bot:
         self.now = now or (lambda: datetime.now(tz=ICT))
         self.dry_run = dry_run
         self.fix_lock = threading.Lock()
+        self.state_lock = threading.Lock()
         self.spawn = spawn or (lambda fn: threading.Thread(target=fn, daemon=True).start())
 
     # ---- helpers -------------------------------------------------------------------------------
     def state(self) -> NightState:
         return NightState.load(self.cfg.state_dir, night_id(self.now()))
+
+    def _update(self, fn):
+        """Load → mutate → save under state_lock, as one short critical section.
+
+        No NightState instance may be held across triage(), prepare_night(), fixer.run(), or a
+        chat.post() call — those can each take seconds to minutes, and NightState.save() is a
+        full-snapshot overwrite, so holding one that long would silently discard whatever the
+        other thread (poller vs. command worker) wrote in the meantime.
+        """
+        with self.state_lock:
+            st = self.state()
+            result = fn(st)
+            st.save()
+            return result
 
     def _post(self, text: str, thread_key: str | None = None, thread_name: str | None = None) -> str:
         if self.dry_run:
@@ -53,28 +68,28 @@ class Bot:
     # ---- poller --------------------------------------------------------------------------------
     def poll_once(self) -> list[TriageResult]:
         now = self.now()
-        st = self.state()
         failures = self.lf.failures_since(now - timedelta(hours=self.cfg.lookback_hours))
-        fresh = [f for f in failures if st.mark_seen(f.key)]
-        st.save()
+        fresh = self._update(lambda st: [f for f in failures if st.mark_seen(f.key)])
         results: list[TriageResult] = []
-        if fresh and not st.prepared:
-            self.triager.prepare_night(st)   # pull clones + mvn install moso-pricing, once per night
+        if fresh:
+            self._update(lambda st: self.triager.prepare_night(st) if not st.prepared else None)
         for f in fresh:
             channel = channel_of(f)
-            k = st.key(f.lender, channel)
-            if k in st.lenders:
+            k = NightState.key(f.lender, channel)
+            if self._update(lambda st, k=k: k in st.lenders):
                 continue  # one thread per lender+channel per night; later zone builds are noise
-            res = self.triager.triage(f)
+            res = self.triager.triage(f)   # no state held — this is the slow part
             label = self.lenders.label(f.lender)
             text = messages.triage_text(res, label, ict_clock(now), self._sheet_uri(res))
-            thread = self._post(text, thread_key=f"{f.lender}-{st.night[5:]}")
-            status = TRIAGED if res.classification.cls == "LAYOUT" else NOT_CODE
-            st.lenders[k] = LenderState(lender=f.lender, channel=channel, status=status, detected_at=now.isoformat(),
-                                        reason=f.description, cause=res.classification.cause, cls=res.classification.cls,
-                                        error_type=res.classification.error_type, tier=res.tier, streak=res.streak,
-                                        sheet=res.sheet, thread_name=thread)
-            st.save()
+            thread = self._post(text, thread_key=f"{f.lender}-{night_id(now)[5:]}")
+
+            def _set(st, k=k, f=f, channel=channel, status=(TRIAGED if res.classification.cls == "LAYOUT" else NOT_CODE),
+                     res=res, thread=thread):
+                st.lenders[k] = LenderState(lender=f.lender, channel=channel, status=status, detected_at=now.isoformat(),
+                                            reason=f.description, cause=res.classification.cause, cls=res.classification.cls,
+                                            error_type=res.classification.error_type, tier=res.tier, streak=res.streak,
+                                            sheet=res.sheet, thread_name=thread)
+            self._update(_set)
             results.append(res)
         return results
 
@@ -89,39 +104,24 @@ class Bot:
         return hits[0], ""
 
     def handle_command(self, cmd: Command) -> str:
-        st = self.state()
         if cmd.kind == "status":
+            st = self.state()
             return messages.status_text(st, {e: self.lenders.label(e) for e in {ls.lender for ls in st.lenders.values()}})
         if cmd.kind == "fix_all":
-            targets = [ls for ls in st.lenders.values() if ls.status in (TRIAGED, AWAITING_CONFIRM, FIX_FAILED)]
-            if not targets:
-                return "Nothing to fix tonight."
-            acks, keys = [], []
-            for ls in targets:
-                label = self.lenders.label(ls.lender)
-                gate = self._fix_gate(ls, label)
-                if gate is not None:
-                    acks.append(gate)
-                    continue
-                ls.status = FIXING
-                acks.append(messages.fixing_text(label, ls.tier))
-                keys.append(st.key(ls.lender, ls.channel))
-            st.save()
-            if keys:
-                self.spawn(lambda keys=keys: [self._run_fix(k, None) for k in keys])
-            return "\n".join(acks)
+            return self._start_fix_all()
+        st = self.state()
         ls, err = self._find(st, cmd.lender_text)
         if not ls:
             return err
+        key = NightState.key(ls.lender, ls.channel)
         if cmd.kind == "skip":
-            ls.status = SKIPPED
-            st.save()
+            self._update(lambda st, key=key: setattr(st.lenders[key], "status", SKIPPED))
             return f"Skipped {self.lenders.label(ls.lender)} for tonight."
         label = self.lenders.label(ls.lender)
         gate = self._fix_gate(ls, label)
         if gate is not None:
             return gate
-        return self._start_fix(st, ls, cmd.thread_name)  # fix | retry
+        return self._start_fix(key, cmd.thread_name)  # fix | retry
 
     def _fix_gate(self, ls: LenderState, label: str) -> str | None:
         """Synchronous eligibility checks, run before ever touching the fixer/lock."""
@@ -141,42 +141,85 @@ class Bot:
         other = next((o for o in st.lenders.values() if o.status == FIXING), None)
         return self.lenders.label(other.lender if other else ls.lender)
 
-    def _start_fix(self, st: NightState, ls: LenderState, thread_name: str | None) -> str:
-        label = self.lenders.label(ls.lender)
-        if ls.status == FIXING or self.fix_lock.locked():
-            return messages.busy_text(self._busy_label(st, ls))
-        ls.status = FIXING
-        st.save()
-        self.spawn(lambda: self._run_fix(st.key(ls.lender, ls.channel), thread_name or ls.thread_name))
-        return messages.fixing_text(label, ls.tier)
+    def _start_fix(self, state_key: str, thread_name: str | None) -> str:
+        def _mark(st):
+            ls = st.lenders[state_key]
+            if ls.status == FIXING or self.fix_lock.locked():
+                return "busy", self._busy_label(st, ls)
+            ls.status = FIXING
+            return "ok", (self.lenders.label(ls.lender), ls.tier, ls.thread_name)
+
+        kind, payload = self._update(_mark)
+        if kind == "busy":
+            return messages.busy_text(payload)
+        label, tier, ls_thread_name = payload
+        self.spawn(lambda: self._run_fix(state_key, thread_name or ls_thread_name))
+        return messages.fixing_text(label, tier)
+
+    def _start_fix_all(self) -> str:
+        def _mark_all(st):
+            targets = [ls for ls in st.lenders.values() if ls.status in (TRIAGED, AWAITING_CONFIRM, FIX_FAILED)]
+            if not targets:
+                return None
+            acks, keys = [], []
+            for ls in targets:
+                label = self.lenders.label(ls.lender)
+                gate = self._fix_gate(ls, label)
+                if gate is not None:
+                    acks.append(gate)
+                    continue
+                ls.status = FIXING
+                acks.append(messages.fixing_text(label, ls.tier))
+                keys.append(NightState.key(ls.lender, ls.channel))
+            return acks, keys
+
+        result = self._update(_mark_all)
+        if result is None:
+            return "Nothing to fix tonight."
+        acks, keys = result
+        if keys:
+            # ONE worker walks every eligible lender sequentially — each _run_fix(k, None) posts
+            # into that lender's own triage thread (thread_name resolves to ls.thread_name).
+            self.spawn(lambda keys=keys: [self._run_fix(k, None) for k in keys])
+        return "\n".join(acks)
 
     def _run_fix(self, state_key: str, thread_name: str | None) -> None:
+        lender = state_key.split("|", 1)[0]
+        label = self.lenders.label(lender)
+        thread = None
         with self.fix_lock:
-            st = self.state()
-            ls = st.lenders[state_key]
-            label = self.lenders.label(ls.lender)
             try:
-                key = self.jira.ensure_ticket(st, label, pacific_date(self.now()))
-                fix: FixResult = self.fixer.run(ls.lender, key)
-                ls.branch = fix.branch or key
-                if fix.status == "fixed":
-                    ls.status, text = FIXED, messages.result_text(label, fix, key)
-                else:
-                    ls.status, text = FIX_FAILED, messages.failure_text(label, fix, key)
-                ls.notes = fix.notes
-                st.save()
-                self.jira.comment(key, self._jira_comment(label, ls, fix))
-                self._post(text, thread_name=thread_name or None)
+                def _prep(st):
+                    ls = st.lenders[state_key]
+                    key = self.jira.ensure_ticket(st, label, pacific_date(self.now()))
+                    return ls.channel, ls.tier, ls.cause, ls.error_type, ls.thread_name, key
+
+                channel, tier, cause, error_type, thread, key = self._update(_prep)
+                fix: FixResult = self.fixer.run(lender, key)   # no state held — this is the slow part
+
+                def _apply(st):
+                    ls = st.lenders[state_key]
+                    ls.branch = fix.branch or key
+                    ls.status = FIXED if fix.status == "fixed" else FIX_FAILED
+                    ls.notes = fix.notes
+                    return ls.status
+
+                status = self._update(_apply)
+                text = messages.result_text(label, fix, key) if status == FIXED else messages.failure_text(label, fix, key)
+                self.jira.comment(key, self._jira_comment(label, channel, error_type, cause, tier, fix))
+                self._post(text, thread_name=thread_name or thread or None)
             except Exception as e:
-                log.exception("fix failed for %s", ls.lender)
-                ls.status = FIX_FAILED
-                ls.notes = str(e)
-                st.save()
-                self._post(f"❌ *{label}* fix crashed: {e}", thread_name=thread_name or None)
+                log.exception("fix failed for %s", label)
+                self._update(lambda st, e=e: (setattr(st.lenders[state_key], "status", FIX_FAILED),
+                                              setattr(st.lenders[state_key], "notes", str(e))))
+                try:
+                    self._post(f"❌ *{label}* fix crashed: {e}", thread_name=thread_name or thread or None)
+                except Exception:
+                    log.exception("failed to post crash message for %s", label)
 
     @staticmethod
-    def _jira_comment(label: str, ls: LenderState, fix: FixResult) -> str:
-        body = [f"h3. {label} ({ls.channel})", f"* Cause: {ls.error_type} — {ls.cause}", f"* Tier: {fix.tier or ls.tier}",
+    def _jira_comment(label: str, channel: str, error_type: str, cause: str, tier: str, fix: FixResult) -> str:
+        body = [f"h3. {label} ({channel})", f"* Cause: {error_type} — {cause}", f"* Tier: {fix.tier or tier}",
                 f"* Status: {fix.status}", f"* Branch: {fix.branch}", f"* Files: {', '.join(fix.files) or '-'}",
                 f"* Tests: {json.dumps(fix.tests)}", f"* Notes: {fix.notes or '-'}"]
         if fix.raw_tail:

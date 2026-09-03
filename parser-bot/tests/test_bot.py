@@ -6,7 +6,7 @@ from parser_bot.fixer import FixResult
 from parser_bot.lenders import LenderIndex
 from parser_bot.lf_api import RateFailure
 from parser_bot.nights import ICT
-from parser_bot.state import NightState, TRIAGED, NOT_CODE, FIXED, FIXING, SKIPPED
+from parser_bot.state import NightState, LenderState, TRIAGED, NOT_CODE, FIXED, FIXING, FIX_FAILED, SKIPPED
 from parser_bot.triage import TriageResult
 from tests.test_triage import make_cfg
 
@@ -40,6 +40,22 @@ class FakeJira:
 class FakeFixer:
     def __init__(self, result): self.result, self.calls = result, []
     def run(self, lender, key, plan_only=False): self.calls.append((lender, key, plan_only)); return self.result
+
+
+class ConcurrentWriteFixer:
+    """Simulates the poller writing new state (a fresh triage + a seen key) while a fix is running."""
+    def __init__(self, cfg, result): self.cfg, self.result, self.calls = cfg, result, []
+    def run(self, lender, key, plan_only=False):
+        self.calls.append((lender, key, plan_only))
+        st = NightState.load(self.cfg.state_dir, "2026-09-03")
+        st.lenders["Provident|QM"] = LenderState("Provident", "QM", TRIAGED, "t")
+        st.mark_seen("k9")
+        st.save()
+        return self.result
+
+
+class CrashingFixer:
+    def run(self, lender, key, plan_only=False): raise RuntimeError("boom")
 
 
 def layout(lender):
@@ -111,3 +127,44 @@ def test_fix_is_refused_while_another_fix_holds_the_lock(tmp_path):
     assert "already" in second
     st = NightState.load(cfg.state_dir, "2026-09-03")
     assert st.lenders["AAALendings|QM"].status == FIXING
+
+
+def test_worker_does_not_clobber_state_written_during_fix(tmp_path):
+    f1 = RateFailure("k1", "c", "AAALendings", "Error while parsing rates for AAALendings")
+    cfg = make_cfg(tmp_path); cfg.commands_enabled = True
+    lf, chat, jira = FakeLF([f1]), FakeChat(), FakeJira()
+    fixer = ConcurrentWriteFixer(cfg, FixResult("fixed", "1", "CRAWL_MISMATCH", "MOSO-9", ["c1"], ["T.java"],
+                                                {"rate": "PASSED", "adj": "PASSED"}, "ok"))
+    bot = Bot(cfg, lf, chat, jira, FakeTriager({"AAALendings": layout("AAALendings")}), fixer, LENDERS,
+             now=lambda: NOW, spawn=lambda fn: fn())
+    bot.poll_once()
+    bot.handle_command(Command("fix", "AAA", "", "", "", ""))
+    st = NightState.load(cfg.state_dir, "2026-09-03")
+    assert st.lenders["AAALendings|QM"].status == FIXED
+    assert "Provident|QM" in st.lenders
+    assert "k9" in st.seen_keys
+
+
+def test_fix_all_posts_each_result_into_the_lender_thread(tmp_path):
+    f1 = RateFailure("k1", "c", "AAALendings", "Error while parsing rates for AAALendings")
+    f2 = RateFailure("k2", "c", "Provident", "Error while parsing rates for Provident")
+    bot, cfg, chat, jira, fixer = build(tmp_path, [f1, f2],
+                                        {"AAALendings": layout("AAALendings"), "Provident": layout("Provident")})
+    bot.poll_once()
+    reply = bot.handle_command(Command("fix_all", "", "", "", "", ""))
+    assert "AAA Lendings" in reply and "Provident Funding" in reply
+    posts_by_thread = {p[2]: p[0] for p in chat.posts if p[0].startswith("✅")}
+    assert posts_by_thread.get("spaces/S/threads/AAALendings-09-03", "").startswith("✅ *AAA Lendings*")
+    assert posts_by_thread.get("spaces/S/threads/Provident-09-03", "").startswith("✅ *Provident Funding*")
+
+
+def test_worker_crash_marks_fix_failed_and_posts(tmp_path):
+    f1 = RateFailure("k1", "c", "AAALendings", "Error while parsing rates for AAALendings")
+    bot, cfg, chat, jira, fixer = build(tmp_path, [f1], {"AAALendings": layout("AAALendings")})
+    bot.fixer = CrashingFixer()
+    bot.poll_once()
+    bot.handle_command(Command("fix", "AAA", "", "", "", ""))
+    st = NightState.load(cfg.state_dir, "2026-09-03")
+    assert st.lenders["AAALendings|QM"].status == FIX_FAILED
+    assert "boom" in st.lenders["AAALendings|QM"].notes
+    assert "fix crashed" in chat.posts[-1][0]
