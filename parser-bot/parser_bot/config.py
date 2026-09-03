@@ -49,7 +49,7 @@ class Config:
 
 
 def _p(value: str) -> str:
-    return str(Path(os.path.expanduser(value)))
+    return os.path.abspath(os.path.expanduser(value))
 
 
 def load_config(path: str) -> Config:
