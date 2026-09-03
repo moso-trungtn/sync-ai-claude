@@ -1,0 +1,9 @@
+PARSER FIX REPORT
+=================
+Lender:    Provident
+Date:      2026-09-03 21:20
+
+RESULTS
+-------
+Adj:  PASSED (14 tables)
+Rate: PASSED

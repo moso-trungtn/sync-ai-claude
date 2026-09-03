@@ -1,0 +1,15 @@
+PARSER FIX REPORT
+=================
+Lender:    AAALendings
+Ratesheet: aaa_lendings_20260903.xlsx
+Date:      2026-09-03 21:20
+
+RESULTS
+-------
+Adj:  FAILED
+Rate: PASSED
+
+ERRORS
+------
+VALUE_MISMATCH | field_7 (loanAmount): 12 cell(s)
+CRAWL_MISMATCH | field_3 (ficoLtv): crawlNote "Credit Score" not found on page 2
