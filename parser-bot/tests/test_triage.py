@@ -78,8 +78,11 @@ def test_prepare_night_runs_once(tmp_path):
     t = Triager(cfg, runner=runner, now=lambda: NOW)
     t.prepare_night(st); t.prepare_night(st)
     cmds = [c[0] for c in runner.calls]
-    assert cmds == [["git", "-C", cfg.moso_pricing, "pull", "--ff-only"],
-                    ["git", "-C", os.path.join(cfg.bot_root, "packs"), "pull", "--ff-only"],
+    packs = os.path.join(cfg.bot_root, "packs")
+    assert cmds == [["git", "-C", cfg.moso_pricing, "checkout", "master"],
+                    ["git", "-C", cfg.moso_pricing, "pull", "--ff-only"],
+                    ["git", "-C", packs, "checkout", "master"],
+                    ["git", "-C", packs, "pull", "--ff-only"],
                     ["mvn", "-q", "install", "-DskipTests", "-Pjar-packaging", "-Dgwt.compiler.skip=true"]]
     assert {c[2] for c in runner.calls} == {cfg.prepare_sec}
     assert st.prepared is True

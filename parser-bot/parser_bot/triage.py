@@ -62,9 +62,14 @@ class Triager:
 
     # ---- nightly preparation -------------------------------------------------------------------
     def prepare(self) -> None:
-        """Pull both bot clones and install moso-pricing to ~/.m2. Shell only; touches no state."""
-        self._run(["git", "-C", self.cfg.moso_pricing, "pull", "--ff-only"], cwd=self.cfg.bot_root, timeout=self.cfg.prepare_sec)
-        self._run(["git", "-C", os.path.join(self.cfg.bot_root, "packs"), "pull", "--ff-only"], cwd=self.cfg.bot_root, timeout=self.cfg.prepare_sec)
+        """Return both bot clones to master, pull, install moso-pricing to ~/.m2. Shell only; touches no state.
+
+        The checkout matters: a fix left the clone on a MOSO-<n> branch, and `pull --ff-only` there
+        would refresh that branch instead of master, so triage would test against yesterday's fix.
+        """
+        for repo in (self.cfg.moso_pricing, os.path.join(self.cfg.bot_root, "packs")):
+            self._run(["git", "-C", repo, "checkout", "master"], cwd=self.cfg.bot_root, timeout=self.cfg.prepare_sec)
+            self._run(["git", "-C", repo, "pull", "--ff-only"], cwd=self.cfg.bot_root, timeout=self.cfg.prepare_sec)
         self._run(["mvn", "-q", "install", "-DskipTests", "-Pjar-packaging", "-Dgwt.compiler.skip=true"],
                   cwd=self.cfg.moso_pricing, timeout=self.cfg.prepare_sec)
 
