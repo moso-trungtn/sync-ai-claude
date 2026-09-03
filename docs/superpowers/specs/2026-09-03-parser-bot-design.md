@@ -54,7 +54,7 @@ reply in thread: fixed (branch, files, what changed) | could not fix (why) | not
 | `chat.py` | Chat API `spaces.messages.create` with app credentials (scope `chat.bot`), `threadKey = "<LenderType>-<MM-DD>"`, `messageReplyOption=REPLY_MESSAGE_FALLBACK_TO_NEW_THREAD`. |
 | `commands.py` | Pub/Sub pull, parse `MESSAGE` events: `fix <lender>`, `fix all`, `skip <lender>`, `retry <lender>`, `status`. Lender resolution: LenderType name, display name, or alias table; ambiguous → ask. Anyone in the space may command (user decision 2026-09-03). |
 | `fixer.py` | Runs `claude -p "/fix-parser --auto --lender <L> --key <KEY>" --permission-mode acceptEdits --max-turns 200` with `PARSER_BOT_ROOT` pointing at the bot clones; 60 min timeout; parses the JSON summary block the skill prints last. |
-| `jira.py` | Nightly ticket: `[Parser failed] MM/DD/YYYY: L1, L2` (US/Pacific date), Task, label `parser`, In Progress. Created on first confirm; later lenders appended to summary + a comment each. Assignee from config (default Trung). |
+| `jira.py` | Nightly ticket: `[Parser failed] MM/DD/YYYY: L1 · L2` (US/Pacific date, middle-dot separator — lender names contain commas), Task, label `parser`, In Progress. Created on first confirm; later lenders appended to summary + a comment each. Assignee from config (default Trung). |
 | `state.py` | `state/<night>.json`: per lender `DETECTED → TRIAGED → AWAITING_CONFIRM → FIXING → FIXED | FIX_FAILED | SKIPPED | NOT_CODE`, RateUpdate keys seen, ticket key, thread names. Idempotent restarts. |
 | `config.yaml` | Space name, LF bot credentials path, Jira creds env names, allowlist (empty = anyone), `commands_enabled` (Phase A = false), active window, paths. |
 
@@ -80,8 +80,8 @@ Add `--auto --lender <L> --key <KEY>` mode; interactive mode unchanged.
 
 | Class | Signal | Bot says / does |
 |---|---|---|
-| `LOGIN_DOWNLOAD` | alert reason matches `login|rejected|Imperva|403|timeout|Selenium|download`, or download-ratesheet.sh finds no new file | "Not a code problem — credentials/site. IT action." No fix offered. |
-| `EMAIL_MISSING` | alert reason `Could not handle email` or CRON_JOB build with no sheet | "No ratesheet arrived / email unreadable." No fix offered. |
+| `LOGIN_DOWNLOAD` | download-ratesheet.sh finds no new file **and** the alert reason matches `login|rejected|imperva|403|timeout|selenium|download|captcha|credential` | "Not a code problem — credentials/site. IT action." No fix offered. |
+| `EMAIL_MISSING` | download-ratesheet.sh finds no new file and the reason does not match the login/download regex — including `Could not handle email` and any other no-sheet CRON_JOB build | "No ratesheet arrived / email unreadable." No fix offered. |
 | `LAYOUT` | new sheet downloaded and `parser-fix.sh` reports VALUE_MISMATCH / CRAWL_MISMATCH / KEYWORD_MISSING / STRUCTURE_CHANGE / RATE_COUNT / NULL_POINTER / NEW_ADJ_DETECTED | Cause line from report + cookbook tier prediction (0/1/2, streak). Offers `fix`. |
 | `TESTS_GREEN` | new sheet parses locally with no error | "Local tests pass on today's sheet — likely transient/builder issue. Retry the build instead." |
 
