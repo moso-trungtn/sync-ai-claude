@@ -27,6 +27,7 @@ class FakeChat:
 
 class FakeTriager:
     def __init__(self, results): self.results, self.prepared = results, 0
+    def prepare(self): self.prepared += 1
     def prepare_night(self, state): self.prepared += 1; state.prepared = True
     def triage(self, failure): return self.results[failure.lender]
 
@@ -58,6 +59,15 @@ class CrashingFixer:
     def run(self, lender, key, plan_only=False): raise RuntimeError("boom")
 
 
+class LockCheckingTriager:
+    """Fails the test if prepare() ever runs while bot.state_lock is held."""
+    def __init__(self, holder, results): self.holder, self.results, self.prepared = holder, results, 0
+    def prepare(self):
+        assert self.holder["bot"].state_lock.locked() is False, "prepare() must not run inside the state lock"
+        self.prepared += 1
+    def triage(self, failure): return self.results[failure.lender]
+
+
 def layout(lender):
     return TriageResult(lender, "QM", True, "/tmp/x.xlsx", Classification("LAYOUT", "CRAWL_MISMATCH", "hdr moved", "FAILED", "PASSED"), "1", 2, False, "")
 
@@ -81,6 +91,7 @@ def test_poll_once_triages_new_failures_once_and_posts_threads(tmp_path):
     st = NightState.load(cfg.state_dir, "2026-09-03")
     assert st.lenders["AAALendings|QM"].status == TRIAGED and st.lenders["AAALendings|QM"].thread_name == "spaces/S/threads/AAALendings-09-03"
     assert st.lenders["Provident|QM"].status == NOT_CODE
+    assert st.prepared is True
     assert bot.poll_once() == [] and len(chat.posts) == 2          # same keys again → nothing new
     assert bot.triager.prepared == 1
 
@@ -168,3 +179,24 @@ def test_worker_crash_marks_fix_failed_and_posts(tmp_path):
     assert st.lenders["AAALendings|QM"].status == FIX_FAILED
     assert "boom" in st.lenders["AAALendings|QM"].notes
     assert "fix crashed" in chat.posts[-1][0]
+
+
+def test_prepare_runs_outside_state_lock(tmp_path):
+    f1 = RateFailure("k1", "c", "AAALendings", "Error while parsing rates for AAALendings")
+    cfg = make_cfg(tmp_path)
+    lf, chat, jira = FakeLF([f1]), FakeChat(), FakeJira()
+    fixer = FakeFixer(FixResult("fixed", "1", "CRAWL_MISMATCH", "MOSO-9", ["c1"], ["T.java"], {"rate": "PASSED", "adj": "PASSED"}, "ok"))
+    holder = {}
+    triager = LockCheckingTriager(holder, {"AAALendings": layout("AAALendings")})
+    bot = Bot(cfg, lf, chat, jira, triager, fixer, LENDERS, now=lambda: NOW, spawn=lambda fn: fn())
+    holder["bot"] = bot
+    bot.poll_once()
+    assert triager.prepared == 1
+    assert NightState.load(cfg.state_dir, "2026-09-03").prepared is True
+
+
+def test_worker_crash_with_missing_state_key_still_posts(tmp_path):
+    bot, cfg, chat, jira, fixer = build(tmp_path, [], {})
+    bot._run_fix("Ghost|QM", "spaces/S/threads/x")   # no such lender in state — must not raise
+    assert "fix crashed" in chat.posts[-1][0]
+    assert chat.posts[-1][2] == "spaces/S/threads/x"

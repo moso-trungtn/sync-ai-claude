@@ -71,8 +71,9 @@ class Bot:
         failures = self.lf.failures_since(now - timedelta(hours=self.cfg.lookback_hours))
         fresh = self._update(lambda st: [f for f in failures if st.mark_seen(f.key)])
         results: list[TriageResult] = []
-        if fresh:
-            self._update(lambda st: self.triager.prepare_night(st) if not st.prepared else None)
+        if fresh and not self._update(lambda st: st.prepared):
+            self.triager.prepare()                       # minutes of shell work — NO lock, NO state held
+            self._update(lambda st: setattr(st, "prepared", True))
         for f in fresh:
             channel = channel_of(f)
             k = NightState.key(f.lender, channel)
@@ -184,11 +185,12 @@ class Bot:
         return "\n".join(acks)
 
     def _run_fix(self, state_key: str, thread_name: str | None) -> None:
-        lender = state_key.split("|", 1)[0]
-        label = self.lenders.label(lender)
-        thread = None
+        label = state_key   # fallback if we crash before resolving the real label below
         with self.fix_lock:
             try:
+                lender = state_key.split("|", 1)[0]
+                label = self.lenders.label(lender)
+
                 def _prep(st):
                     ls = st.lenders[state_key]
                     key = self.jira.ensure_ticket(st, label, pacific_date(self.now()))
@@ -209,13 +211,20 @@ class Bot:
                 self.jira.comment(key, self._jira_comment(label, channel, error_type, cause, tier, fix))
                 self._post(text, thread_name=thread_name or thread or None)
             except Exception as e:
-                log.exception("fix failed for %s", label)
-                self._update(lambda st, e=e: (setattr(st.lenders[state_key], "status", FIX_FAILED),
-                                              setattr(st.lenders[state_key], "notes", str(e))))
+                log.exception("fix worker failed for %s", state_key)
                 try:
-                    self._post(f"❌ *{label}* fix crashed: {e}", thread_name=thread_name or thread or None)
+                    def _fail(st, e=e):
+                        ls = st.lenders.get(state_key)
+                        if ls is not None:
+                            ls.status = FIX_FAILED
+                            ls.notes = str(e)
+                    self._update(_fail)
                 except Exception:
-                    log.exception("failed to post crash message for %s", label)
+                    log.exception("could not record fix failure for %s", state_key)
+                try:
+                    self._post(f"❌ *{label}* fix crashed: {e}", thread_name=thread_name or None)
+                except Exception:
+                    log.exception("could not post crash message for %s", state_key)
 
     @staticmethod
     def _jira_comment(label: str, channel: str, error_type: str, cause: str, tier: str, fix: FixResult) -> str:
