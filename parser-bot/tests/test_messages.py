@@ -1,6 +1,7 @@
 from types import SimpleNamespace as NS
 from parser_bot.classify import Classification
-from parser_bot.messages import triage_text, result_text, failure_text, disabled_text, status_text, unknown_lender_text
+from parser_bot.messages import (triage_text, result_text, failure_text, disabled_text, status_text, unknown_lender_text,
+                                  fixing_text, busy_text)
 from parser_bot.state import NightState, LenderState, TRIAGED, NOT_CODE
 from parser_bot.triage import TriageResult
 
@@ -38,6 +39,12 @@ def test_result_failure_and_disabled_texts():
     assert "Phase A" in disabled_text()
     assert "did not fail tonight" in unknown_lender_text("Foo", [])
     assert "PennyMac, PennyMacCorrespondent" in unknown_lender_text("Penny", ["PennyMac", "PennyMacCorrespondent"])
+
+
+def test_fixing_and_busy_texts():
+    assert fixing_text("AAA Lendings", "1") == "⏳ Fixing *AAA Lendings* (Tier 1). I'll report in this thread when done."
+    assert fixing_text("AAA Lendings", "") == "⏳ Fixing *AAA Lendings*. I'll report in this thread when done."
+    assert busy_text("AAA Lendings") == "A fix is already running (AAA Lendings). Ask again when it reports."
 
 
 def test_status_text_lists_lenders(tmp_path):

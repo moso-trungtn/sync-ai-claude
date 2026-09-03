@@ -62,6 +62,14 @@ def unknown_lender_text(text: str, matches: list[str]) -> str:
     return f"'{text}' did not fail tonight (or I can't match it to a lender). Try `@Parser Bot status`."
 
 
+def fixing_text(label: str, tier: str) -> str:
+    return f"⏳ Fixing *{label}*" + (f" (Tier {tier})" if tier else "") + ". I'll report in this thread when done."
+
+
+def busy_text(label: str) -> str:
+    return f"A fix is already running ({label}). Ask again when it reports."
+
+
 def status_text(state: NightState, labels: dict[str, str]) -> str:
     if not state.lenders:
         return f"Night {state.night}: no failures so far."
