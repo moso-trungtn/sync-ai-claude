@@ -1,11 +1,54 @@
 # Parser Fix Cookbook
 
-## PennyMac
-- **tier_history**: [0, 0, 0, 1, 0, 0, 0, 0, 0, 0] (last 10)
-- **tier_0_streak**: 6
-- **last_tier1_fix**: CRAWL_MISMATCH on field_8 → updated section keyword "FICO Score" → "Credit Score" (2026-03-15)
+<!-- Auto-updated by fix-parser pipeline. Do not edit manually. -->
+
+## GLOBAL LESSONS
+- **Blanket-accept hides silent misses**: bulk expectation-accept commits (e.g. MOSO-16751 "Fix many lenders fail Jun 30", MOSO-16276 4/29, Eleven 5/04) locked in EMPTY tables as "green". After any bulk accept, audit `grep -cE '^[A-Za-z_0-9]+=$' adj-expectations/*.txt` — every blank `field_N=` is a table crawling zero rows in prod.
+- **decimalTableString 1500-byte trap is RECURRING**: seen on LoanUnited (2026-07-02) AND PlazaHome (2026-07-03). A big matrix can CRAWL fine but be silently dropped at datastore save (WARNING log only) → empty expectations while tests pass. Any matrix bigger than ~15×10 must use `TableType.decimalTable()` fields.
+
+## LoanStream (NonQM)
+- **paths**: Tables=`moso-pricing/.../shared/parser/lender/LoanStreamNonQMTables.java`, Rate=`.../server/op/parser/rate/LoanStreamNonQMXlsParser.java`, Adj=`.../server/op/parser/adjustment/LoanStreamNonQMAdjustmentParser.java`, Glue=`.../server/op/parser/LoanStreamNonQMParser.java` (SeleniumParser), Doc=`docs/lenders/nonqm.md`
+- **tier_history**: [0]
+- **tier_0_streak**: 1
+- **last_fix**: 2026-08-11 (no code change — refs bumped LOAN_STREAM_NON_QM_20260729→LOAN_STREAM_NON_QM_20260807, zero expectation diffs)
+- **last_error**: NOT a parser bug — GCS `LoanStreamNonQM.xls` held the QM wholesale PDF (byte-identical to `LoanStream.pdf`, both slots overwritten 19s apart 08/10) → POI "neither an OLE2 stream, nor an OOXML stream". Selenium bot picked the wrong portal file after the lender switched the Non-QM sheet from `.xls` to `.xlsm`.
+- **notes**: NO login needed — real sheet is public at `loanstreamwholesale.com/rates/` (`NonQM-WS-Ratesheet-MM.DD.YYYY-V1.0.xlsm`); curl it directly when the GCS slot is poisoned. `download-ratesheet.sh LoanStream --nonqm` tries `.xlsx` (404) and `--ext xls` returns whatever bad bytes GCS holds — always `file` the download before testing. Adj parser reads only `NonQM`+`DSCR` tabs; WorkbookFactory handles xlsm fine. Prod fix belongs in the Selenium bot (outside these repos) — until then every selenium run re-poisons the GCS slot. No Jira ticket existed (all LoanStream tickets Done/Closed); fixed on direct user request.
+
+## JMAC
+- **paths**: Tables=`moso-pricing/.../shared/parser/lender/JMACTables.java`, Rate=`.../server/op/parser/rate/JMACExcelParser.java` (active; `JMACPdfParser` is legacy), Adj=`.../server/op/parser/adjustment/JMACAdjustmentExcelParser.java`, Glue=`JMACParser.java`
+- **tier_history**: [0]
+- **tier_0_streak**: 1
+- **last_fix**: 2026-08-11 (verify only — no code change; refs bumped JMAC_20260617→JMAC_20260811)
+- **last_error**: none — direct user request "fix lender JMAC Lending", no open Jira ticket (only ancient MOSO-6418 from 2022). Downloaded jmac_20260811.xlsx (internally dated 8/10, genuinely fresh: ~11.8k cells repriced vs June), both tests green with ZERO expectation diffs, zero blank `field_N=` fields.
+- **notes**: QM lender, .xlsx, sheets `WS` + `Borrower Paid MI Indications`. Rate expectations are KEY-SET only (113 product keys) — repricing never fails the test. Adj test has many `states_field_N` asserts. NewAdjustmentDetector runs INSIDE `JMACAdjustmentExcelParser.parseInputStream` and silently rewrote its remainder file (removed-only diff: lender dropped `S/E FICO >= 660/700/720` rows; `June Promotion`→`July Promotion` matched as similar). Monthly "<Month> Promotion" row is UNPARSED (lives in remainder) — JMAC promos were never modeled; flag if pricing complaints arrive. `download-ratesheet.sh JMAC --no-detect` works clean. Watch: packs/loan target/classes can go stale (ClassNotFoundException BasePdfParser, phantom PylonStagesTest compile errors) — fix with `mvn compile -Dmaven.compiler.useIncrementalCompilation=false`, not a parser issue.
+
+## UnionHome
+- **paths**: Tables=`moso-pricing/.../shared/parser/lender/UnionHomeTables.java`, Rate=`.../server/op/parser/rate/UnionHomePdfParser.java`, Adj=`.../server/op/parser/adjustment/UnionHomeAdjustmentPdfParser.java`, Glue=`.../server/op/parser/UnionHomeParser.java`, Doc=`docs/lenders/medium-lenders.md` (UnionHome section)
+- **tier_history**: [1]
+- **tier_0_streak**: 0
+- **last_fix**: 2026-08-11
+- **last_error**: CRAWL_MISMATCH — `Table: Conventional Fixed 15Yr Adjustments, Can not parse row with label: '9.375', Expected 16 match(es), found 15`. No open Jira ticket (MOSO-16933 for the 07/31 fail was already Done); fixed on direct user request.
+- **last_tier1_fix**: Lender REMOVED the blank page at index 11 they had inserted on 07/31 (40→39 pages), shifting the rate-ladder zone start back 14→13, so the hardcoded `getPageContent(document, 14, ...)` skipped the first ladder page (16 tables share one PageParser call; first section dropped → all rate rows found 15/16). Replaced the hardcoded start with a content scan: `ParserUtils.generatePageIndexMap(document, "Conv fixed 180")` (verified = zone start on 03/12, 07/16, 07/31, 08/11 sheets; PageMap throws if absent). NOTE: `ParserUtils.PageMap` (moso-pricing, adjustment package) is the EXISTING util for marker-based page lookup — 14 parsers use it (AmWest, Rocket, Quicken, JMAC, Bluepoint, NationsDirect, UnionHome...); never hand-roll a page-scan loop or hardcode volatile page indexes. End stays `getNumberOfPages()-1`. Remaining diffs were real repricing (12 tables, incl. former `#N/A` rows now priced, e.g. 15Yr 9.375 row) → accepted. (2026-08-11)
+- **notes**: QM lender, PDF. Ladder-zone page index flip-flops between exports — BOTH ends now derived, never hardcode again. Rate rows use `.addNA("N/A")` + zone content `.replace("#","")` to eat `#N/A` cells. Earlier pages (3/4/6/7) still hardcoded but sit BEFORE the volatile blank-page slot and have been stable. `download-ratesheet.sh UnionHome --no-detect` works. Diagnosis shortcut: reproduce the parser's exact zone with a jshell/java probe over `PdfUtils.getPageContent` and count row-regex matches per label old vs new — pdftotext line counts can look identical while the PDFBox zone differs.
+
+- **moso-pricing builds can clobber locally-installed base jars**: `mvn install` in moso-pricing may refresh base/core/appengine SNAPSHOT jars in ~/.m2 from nexus, overwriting newer locally-built ones. Symptom: packs/loan main suddenly fails to compile on a symbol that exists in the local base repo but not in the nexus snapshot (e.g. `AbstractOp.headersForLog`, 2026-08-12). Fix: `cd base/<module> && mvn install -DskipTests -o` to restore the local jar, then run packs/loan tests with `-o`.
+
+## RocketCorrespondent / QuickenLoans
+- **paths**: Tables=`moso-pricing/.../shared/parser/lender/RocketCorrespondentTables.java` + `QuickenLoansTables.java` (wholesale twin — Compass/gov rows exist in BOTH, fix together), Adj=`.../adjustment/RocketCorrespondentAdjPdfParser.java` + `QuickenAdjustmentPdfParser.java`, Doc=`docs/lenders/quicken-rocket.md`
+- **tier_history**: [1]
+- **tier_0_streak**: 0
+- **last_fix**: 2026-07-03
+- **last_error**: SILENT MISS (tests green) — MOSO-16774: gov-table Compass Credit (-0.4) gated with `HIGH_BALANCE.not().and(ARM.not())` → dropped on high-balance FHA purchases; ratesheet footnotes actually belong to Commitment Period rows (verified via pdftotext: `Compass Credit` has no asterisk, `90-Day Commitment*`/`180-Day Commitment**` do)
+- **last_tier1_fix**: Removed `.and(HIGH_BALANCE.not()).and(ARM.not())` from gov Compass Credit row in RocketCorrespondentTables.java:204 AND QuickenLoansTables.java:209 → bare `PM.and(COMPASS_AGENT)`, matching all 3 other Compass rows in each class. Added condition-level regression test `AdjustmentParsersTest#testRocketProCompassCreditNotGatedByHighBalance` (rowRange() lookup by note, minimal QuoteServer with public purpose/category fields + protected quoteParameters via anonymous subclass — no DB bootstrap needed). (2026-07-03)
+- **notes**: ONE PDF (`quicken_loans_YYYYMMDD.pdf`) drives QuickenLoans (wholesale), RocketCorrespondent, AND rocket_bpmi tests. QuickenQuoteTest is class-level @Disabled and QuoteTestBase's quote_config snapshot predates Compass Credit — scenario coverage must live in AdjustmentParsersTest as condition-level asserts. `is_compass_agent` read via `quote.get(Quote.is_compass_agent)`; HIGH_BALANCE = `LoanCategory.SuperConf`.
 
 ## LoganFinance
-- **tier_history**: [0, 1, 0, 0, 0]
-- **tier_0_streak**: 3
-- **last_tier1_fix**: VALUE_MISMATCH on FICO table → row ranges changed (2026-03-10)
+- **paths**: Tables=`moso-pricing/.../LoganFinanceNonQMTables.java`, Rate=`moso-pricing/.../LoganFinanceNonQMPdfParser.java`, Adj=`moso-pricing/.../LoganFinanceNonQMAdjPdfParser.java`
+- **tier_history**: [0, 0, 1]
+- **tier_0_streak**: 0
+- **last_fix**: 2026-07-27 (sheet un-froze after 3.5 months — logan_finance_nonqm_20260727.pdf is the first real content change since 04/06; effective date inside the PDF is 7/17/2026). VERIFIED ACTUALLY APPLIED ON DISK — a prior same-day entry described this fix but the code/test edits were never written (git status/log showed nothing); redone from scratch this pass, both tests confirmed green.
+- **last_error**: CRAWL_MISMATCH (1 table, second was pre-empted) — `IllegalStateException: Table: Full Doc Adjustments ... Can not parse row with label: 'State- GEO 1'`
+- **last_tier1_fix**: The `State- GEO N` footnote-glue pattern (see docs/lenders/nonqm.md) flipped on two tables. (1) Full Doc Adjustments (`LoganFinanceNonQMTables.java` ~line 103): GEO 1/2/3 crawlNotes changed from unglued `State- GEO 1/2/3` → glued `State- GEO 11/22/33` (GEO 4 stayed `44`). (2) 5-8 Unit Residential (~line 317): GEO 1 crawlNote changed from glued `State- GEO 11` → unglued `State- GEO 1` (GEO 2/3/4 unchanged `22/33/44`). Verified against a live `PdfUtils.getPageContent(doc, page)` dump per page (page 0 = Full Doc, page 4 = Units 5-8) — do NOT trust `pdftotext -layout`, its line-wrap rendering disagrees with PDFBox's actual glue behavior and would have suggested the wrong fix. Also spot-checked pages 1-3 (Alt Doc/DSCR/DSCR Elite) against their existing crawlNotes — all already matched, no further changes needed there. After both crawlNote fixes, remaining diffs were real repriced values (24/24/21/18 cells changed on field_187/188/189/190) — accepted, zero blank fields afterward. Rate test also green (415 rates, 12 tables). (2026-07-27)
+- **PDFBox footnote-glue is NOT stable across exports**: don't assume a `GEO NN` pattern documented on a past date still holds — dump the CURRENT PDF page with the actual parser method (`PdfUtils.getPageContent`) before writing a crawlNote fix; the glue direction can flip per-table, per-page, and per-export independently of neighboring tables that stay unchanged.
+- **MEMORY-VS-REALITY TRAP**: this cookbook entry itself was wrong once — it claimed a fix was applied/verified on a given date, but the actual files on disk (Tables.java, RatesheetFiles.java, test refs) still had the old broken state and no matching commit existed in git log. Always confirm a cookbook `last_fix` claim against `git log`/`git status`/grep of the actual crawlNote text before skipping straight to "already fixed" — a cookbook entry records what an agent *believed* it did, not a guarantee it was persisted.
+- **notes**: NonQM lender. Rate test `testLoganFinance` in RateParserTest is ACTIVE. `lender-info.sh LoganFinance` / `parser-fix.sh LoganFinance --both` HANGS indefinitely at "Resolving lender info" (can't auto-resolve the rate test method name) — skip both scripts and run `mvn test -Dtest=AdjustmentParsersTest#testLoganFinance` / `RateParserTest#testLoganFinance` directly. `download-ratesheet.sh LoganFinance --nonqm` also stalls at "Date: detecting..." — use `--no-detect`.

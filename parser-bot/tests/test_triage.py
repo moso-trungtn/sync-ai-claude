@@ -50,14 +50,14 @@ NOW = datetime(2026, 9, 3, 21, 14, tzinfo=ICT)
 def test_triage_layout_failure_runs_download_then_tests_and_predicts_tier(tmp_path):
     cfg = make_cfg(tmp_path); runner = Runner(cfg)
     t = Triager(cfg, runner=runner, now=lambda: NOW)
-    res = t.triage(RateFailure("k", "2026-09-03T14:10", "PennyMac", "Error while parsing rates for PennyMac from Cron Job"))
-    assert res.channel == "QM" and res.downloaded is True and res.sheet.endswith("pennymac_20260903.xlsx")
+    res = t.triage(RateFailure("k", "2026-09-03T14:10", "UnionHome", "Error while parsing rates for UnionHome from Cron Job"))
+    assert res.channel == "QM" and res.downloaded is True and res.sheet.endswith("unionhome_20260903.xlsx")
     assert res.classification.cls == "LAYOUT" and res.classification.error_type == "CRAWL_MISMATCH"
-    assert (res.tier, res.streak, res.hint) == ("1", 6, True)
-    assert runner.calls[0][0] == ["./download-ratesheet.sh", "PennyMac", "--no-detect", "--no-git", "--no-java"]
+    assert (res.tier, res.streak, res.hint) == ("1", 0, True)
+    assert runner.calls[0][0] == ["./download-ratesheet.sh", "UnionHome", "--no-detect", "--no-git", "--no-java"]
     assert runner.calls[0][1] == cfg.packs_loan
     assert runner.calls[0][2] == cfg.triage_sec
-    assert runner.calls[1][0][:2] == ["./parser-fix.sh", "PennyMac"] and "--both" in runner.calls[1][0]
+    assert runner.calls[1][0][:2] == ["./parser-fix.sh", "UnionHome"] and "--both" in runner.calls[1][0]
     assert runner.calls[1][2] == cfg.triage_sec
 
 
