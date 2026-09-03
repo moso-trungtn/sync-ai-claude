@@ -1,0 +1,95 @@
+from datetime import datetime
+from types import SimpleNamespace as NS
+from parser_bot.bot import Bot
+from parser_bot.classify import Classification
+from parser_bot.commands import Command
+from parser_bot.fixer import FixResult
+from parser_bot.lenders import LenderIndex
+from parser_bot.lf_api import RateFailure
+from parser_bot.nights import ICT
+from parser_bot.state import NightState, TRIAGED, NOT_CODE, FIXED, SKIPPED
+from parser_bot.triage import TriageResult
+from tests.test_triage import make_cfg
+
+NOW = datetime(2026, 9, 3, 21, 14, tzinfo=ICT)
+LENDERS = LenderIndex({"AAALendings": {"id": 1, "name": "AAA Lendings"}, "Provident": {"id": 3, "name": "Provident Funding"}}, {})
+
+
+class FakeLF:
+    def __init__(self, failures): self.failures, self.since = failures, []
+    def failures_since(self, since): self.since.append(since); return self.failures
+
+
+class FakeChat:
+    def __init__(self): self.posts = []
+    def post(self, text, thread_key=None, thread_name=None):
+        self.posts.append((text, thread_key, thread_name)); return {"thread": {"name": f"spaces/S/threads/{thread_key or 'reply'}"}}
+
+
+class FakeTriager:
+    def __init__(self, results): self.results, self.prepared = results, 0
+    def prepare_night(self, state): self.prepared += 1; state.prepared = True
+    def triage(self, failure): return self.results[failure.lender]
+
+
+class FakeJira:
+    def __init__(self): self.comments = []
+    def ensure_ticket(self, state, label, date_pt): state.ticket = state.ticket or "MOSO-9"; return state.ticket
+    def comment(self, key, text): self.comments.append((key, text))
+
+
+class FakeFixer:
+    def __init__(self, result): self.result, self.calls = result, []
+    def run(self, lender, key, plan_only=False): self.calls.append((lender, key, plan_only)); return self.result
+
+
+def layout(lender):
+    return TriageResult(lender, "QM", True, "/tmp/x.xlsx", Classification("LAYOUT", "CRAWL_MISMATCH", "hdr moved", "FAILED", "PASSED"), "1", 2, False, "")
+
+
+def build(tmp_path, failures, results, fix=None, commands_enabled=True):
+    cfg = make_cfg(tmp_path); cfg.commands_enabled = commands_enabled
+    lf, chat, jira = FakeLF(failures), FakeChat(), FakeJira()
+    fixer = FakeFixer(fix or FixResult("fixed", "1", "CRAWL_MISMATCH", "MOSO-9", ["c1"], ["T.java"], {"rate": "PASSED", "adj": "PASSED"}, "ok"))
+    bot = Bot(cfg, lf, chat, jira, FakeTriager(results), fixer, LENDERS, now=lambda: NOW)
+    return bot, cfg, chat, jira, fixer
+
+
+def test_poll_once_triages_new_failures_once_and_posts_threads(tmp_path):
+    f1 = RateFailure("k1", "c", "AAALendings", "Error while parsing rates for AAALendings")
+    f2 = RateFailure("k2", "c", "Provident", "Error while parsing rates for Provident ← login rejected")
+    prov = TriageResult("Provident", "QM", False, "", Classification("LOGIN_DOWNLOAD", "", "login rejected"), "", 0, False, "")
+    bot, cfg, chat, *_ = build(tmp_path, [f1, f2], {"AAALendings": layout("AAALendings"), "Provident": prov})
+    out = bot.poll_once()
+    assert [r.lender for r in out] == ["AAALendings", "Provident"]
+    assert chat.posts[0][1] == "AAALendings-09-03" and chat.posts[0][0].startswith("🔎 *AAA Lendings* (QM) failed 21:14 ICT")
+    st = NightState.load(cfg.state_dir, "2026-09-03")
+    assert st.lenders["AAALendings|QM"].status == TRIAGED and st.lenders["AAALendings|QM"].thread_name == "spaces/S/threads/AAALendings-09-03"
+    assert st.lenders["Provident|QM"].status == NOT_CODE
+    assert bot.poll_once() == [] and len(chat.posts) == 2          # same keys again → nothing new
+    assert bot.triager.prepared == 1
+
+
+def test_fix_command_creates_ticket_runs_fixer_and_reports(tmp_path):
+    f1 = RateFailure("k1", "c", "AAALendings", "Error while parsing rates for AAALendings")
+    bot, cfg, chat, jira, fixer = build(tmp_path, [f1], {"AAALendings": layout("AAALendings")})
+    bot.poll_once()
+    reply = bot.handle_command(Command("fix", "AAA", "t@lf", "Trung", "spaces/S/threads/AAALendings-09-03", "spaces/S"))
+    assert fixer.calls == [("AAALendings", "MOSO-9", False)]
+    assert reply.startswith("✅ *AAA Lendings* fixed — branch MOSO-9")
+    assert jira.comments and jira.comments[0][0] == "MOSO-9" and "CRAWL_MISMATCH" in jira.comments[0][1]
+    st = NightState.load(cfg.state_dir, "2026-09-03")
+    assert st.lenders["AAALendings|QM"].status == FIXED and st.lenders["AAALendings|QM"].branch == "MOSO-9" and st.ticket == "MOSO-9"
+
+
+def test_skip_status_unknown_and_disabled(tmp_path):
+    f1 = RateFailure("k1", "c", "AAALendings", "Error while parsing rates for AAALendings")
+    bot, cfg, chat, jira, fixer = build(tmp_path, [f1], {"AAALendings": layout("AAALendings")})
+    bot.poll_once()
+    assert "SKIPPED" not in bot.handle_command(Command("status", "", "", "", "", ""))
+    bot.handle_command(Command("skip", "AAA Lendings", "", "", "", ""))
+    assert NightState.load(cfg.state_dir, "2026-09-03").lenders["AAALendings|QM"].status == SKIPPED
+    assert "did not fail tonight" in bot.handle_command(Command("fix", "Provident", "", "", "", ""))
+    assert fixer.calls == []
+    bot.cfg.commands_enabled = False
+    assert "Phase A" in bot.handle_command(Command("fix", "AAA", "", "", "", ""))
