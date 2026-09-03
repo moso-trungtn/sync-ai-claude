@@ -6,6 +6,7 @@ import requests
 from .state import NightState
 
 PREFIX = "[Parser failed] "
+SEP = " · "
 
 
 class JiraClient:
@@ -29,7 +30,7 @@ class JiraClient:
         fields = {
             "project": {"key": self.project},
             "issuetype": {"name": "Task"},
-            "summary": f"{PREFIX}{date_pt}: {', '.join(labels)}",
+            "summary": f"{PREFIX}{date_pt}: {SEP.join(labels)}",
             "labels": ["parser"],
             "assignee": {"accountId": self.assignee},
             "description": ("h3. Overnight parser failures\n"
@@ -48,12 +49,12 @@ class JiraClient:
         r.raise_for_status()
         summary = r.json()["fields"]["summary"]
         head, _, tail = summary.partition(": ")
-        names = [n.strip() for n in tail.split(",") if n.strip()] if tail else []
+        names = [n.strip() for n in tail.split(SEP) if n.strip()] if tail else []
         if label in names:
             return
         names.append(label)
         self.session.put(f"{self.base}/rest/api/2/issue/{key}",
-                         json={"fields": {"summary": f"{head}: {', '.join(names)}"}}, timeout=30).raise_for_status()
+                         json={"fields": {"summary": f"{head}: {SEP.join(names)}"}}, timeout=30).raise_for_status()
 
     def comment(self, key: str, text: str) -> None:
         self.session.post(f"{self.base}/rest/api/2/issue/{key}/comment", json={"body": text}, timeout=30).raise_for_status()

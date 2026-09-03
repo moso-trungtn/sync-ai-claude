@@ -46,9 +46,13 @@ def test_append_lender_and_ensure_ticket(tmp_path):
     s = FakeJira()
     j = JiraClient("https://j", "me@x", "tok", "MOSO", "1:2", session=s)
     j.append_lender("MOSO-9", "Rocket Pro")
-    assert s.summary == "[Parser failed] 09/03/2026: AAA Lendings, Rocket Pro"
+    assert s.summary == "[Parser failed] 09/03/2026: AAA Lendings · Rocket Pro"
     j.append_lender("MOSO-9", "Rocket Pro")                       # idempotent
     assert s.summary.count("Rocket Pro") == 1
+    j.append_lender("MOSO-9", "National Mortgage Service, Inc. (NMSI)")
+    j.append_lender("MOSO-9", "National Mortgage Service, Inc. (NMSI)")  # idempotent with comma
+    assert s.summary.count("National Mortgage Service, Inc. (NMSI)") == 1
+    assert s.summary.endswith("Rocket Pro · National Mortgage Service, Inc. (NMSI)")
     st = NightState.load(str(tmp_path), "2026-09-03")
     assert j.ensure_ticket(st, "AAA Lendings", "09/03/2026") == "MOSO-9" and st.ticket == "MOSO-9"
     j.comment("MOSO-9", "hello")
