@@ -1,6 +1,7 @@
 """Read-only triage: download today's sheet, run parser-fix.sh in the bot clones, classify, predict tier."""
 from __future__ import annotations
 
+import logging
 import os
 import subprocess
 import time
@@ -14,6 +15,8 @@ from .cookbook import parse_cookbook, predict_tier
 from .lf_api import RateFailure
 from .nights import ICT, PT
 from .state import NightState
+
+log = logging.getLogger("parser-bot")
 
 
 @dataclass
@@ -44,7 +47,10 @@ class Triager:
 
     # ---- helpers -------------------------------------------------------------------------------
     def _run(self, cmd: list[str], cwd: str, timeout: int) -> subprocess.CompletedProcess:
-        return self.runner(cmd, cwd=cwd, timeout=timeout, capture_output=True, text=True)
+        p = self.runner(cmd, cwd=cwd, timeout=timeout, capture_output=True, text=True)
+        if getattr(p, "returncode", 0):
+            log.warning("%s exited %s: %s", cmd[0], p.returncode, (p.stderr or "")[-200:])
+        return p
 
     @staticmethod
     def _new_files(root: str, since: float) -> list[str]:
@@ -117,8 +123,12 @@ class Triager:
         except subprocess.TimeoutExpired:
             return None, ""
         expected = os.path.join(self.cfg.report_dir, lender.lower(), "report.txt")
-        candidates = [expected] if os.path.exists(expected) else \
-            [p for p in self._new_files(self.cfg.report_dir, t0) if p.endswith("report.txt")] if os.path.isdir(self.cfg.report_dir) else []
+        if os.path.exists(expected) and os.path.getmtime(expected) >= t0:
+            candidates = [expected]     # a report older than this run is a leftover, never today's answer
+        elif os.path.isdir(self.cfg.report_dir):
+            candidates = [p for p in self._new_files(self.cfg.report_dir, t0) if p.endswith("report.txt")]
+        else:
+            candidates = []
         if not candidates:
             return None, ""
         return Path(candidates[0]).read_text(encoding="utf-8", errors="replace"), candidates[0]

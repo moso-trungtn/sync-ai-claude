@@ -17,6 +17,17 @@ class RateFailure:
     lender: str
     description: str
 
+    def created_at(self) -> datetime | None:
+        """When the builder recorded the failure. RateUpdate.created is naive UTC; None if unparsable."""
+        raw = (self.created or "").strip()
+        if not raw:
+            return None
+        try:
+            dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
 
 class LFClient:
     def __init__(self, base_url: str, ns: str, username: str, password: str, session=None, clock=time.time):

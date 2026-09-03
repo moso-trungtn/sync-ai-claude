@@ -73,27 +73,44 @@ class Bot:
         fresh = self._update(lambda st: [f for f in failures if st.mark_seen(f.key)])
         results: list[TriageResult] = []
         if fresh and not self._update(lambda st: st.prepared):
-            self.triager.prepare()                       # minutes of shell work — NO lock, NO state held
+            try:
+                self.triager.prepare()                   # minutes of shell work — NO lock, NO state held
+            except Exception:
+                log.exception("nightly prepare failed; every fresh failure will be retried next poll")
+                self._forget([f.key for f in fresh])
+                return []
             self._update(lambda st: setattr(st, "prepared", True))
         for f in fresh:
-            channel = channel_of(f)
-            k = NightState.key(f.lender, channel)
-            if self._update(lambda st, k=k: k in st.lenders):
-                continue  # one thread per lender+channel per night; later zone builds are noise
-            res = self.triager.triage(f)   # no state held — this is the slow part
-            label = self.lenders.label(f.lender)
-            text = messages.triage_text(res, label, ict_clock(now), self._sheet_uri(res))
-            thread = self._post(text, thread_key=f"{f.lender}-{night_id(now)[5:]}")
+            try:
+                channel = channel_of(f)
+                k = NightState.key(f.lender, channel)
+                if self._update(lambda st, k=k: k in st.lenders):
+                    continue  # one thread per lender+channel per night; later zone builds are noise
+                res = self.triager.triage(f)   # no state held — this is the slow part
+                label = self.lenders.label(f.lender)
+                text = messages.triage_text(res, label, ict_clock(f.created_at() or now), self._sheet_uri(res))
+                thread = self._post(text, thread_key=f"{f.lender}-{night_id(now)[5:]}")
 
-            def _set(st, k=k, f=f, channel=channel, status=(TRIAGED if res.classification.cls == "LAYOUT" else NOT_CODE),
-                     res=res, thread=thread):
-                st.lenders[k] = LenderState(lender=f.lender, channel=channel, status=status, detected_at=now.isoformat(),
-                                            reason=f.description, cause=res.classification.cause, cls=res.classification.cls,
-                                            error_type=res.classification.error_type, tier=res.tier, streak=res.streak,
-                                            sheet=res.sheet, thread_name=thread)
-            self._update(_set)
-            results.append(res)
+                def _set(st, k=k, f=f, channel=channel, status=(TRIAGED if res.classification.cls == "LAYOUT" else NOT_CODE),
+                         res=res, thread=thread):
+                    st.lenders[k] = LenderState(lender=f.lender, channel=channel, status=status, detected_at=now.isoformat(),
+                                                reason=f.description, cause=res.classification.cause, cls=res.classification.cls,
+                                                error_type=res.classification.error_type, tier=res.tier, streak=res.streak,
+                                                sheet=res.sheet, thread_name=thread)
+                self._update(_set)
+                results.append(res)
+            except Exception:
+                # The key was already marked seen; drop it again or this alert is lost for the night.
+                log.exception("triage failed for %s", f.lender)
+                self._forget([f.key])
         return results
+
+    def _forget(self, keys: list[str]) -> None:
+        """Un-see alert keys so the next poll picks them up again."""
+        def _drop(st):
+            for k in keys:
+                st.seen_keys.discard(k)
+        self._update(_drop)
 
     # ---- commands ------------------------------------------------------------------------------
     def _find(self, st: NightState, text: str) -> tuple[LenderState | None, str]:

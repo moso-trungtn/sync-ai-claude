@@ -63,6 +63,25 @@ class ConcurrentWriteFixer:
         return self.result
 
 
+class FlakyTriager:
+    """Raises on the first triage() call, then behaves — a lender site hiccup mid-poll."""
+    def __init__(self, results): self.results, self.prepared, self.calls = results, 0, 0
+    def prepare(self): self.prepared += 1
+    def triage(self, failure):
+        self.calls += 1
+        if self.calls == 1:
+            raise RuntimeError("triage boom")
+        return self.results[failure.lender]
+
+
+class FlakyPrepareTriager(FakeTriager):
+    """prepare() fails the first time (bad pull / mvn), succeeds afterwards."""
+    def prepare(self):
+        self.prepared += 1
+        if self.prepared == 1:
+            raise RuntimeError("mvn boom")
+
+
 class CrashingFixer:
     def run(self, lender, key, plan_only=False): raise RuntimeError("boom")
 
@@ -239,3 +258,43 @@ def test_listen_once_uses_the_injected_puller_and_reuses_it(tmp_path):
     assert chat.posts[-1][2] == "spaces/S/threads/t7"
     bot.listen_once()
     assert bot.puller is puller and puller.pulls == 2
+
+
+def poller(tmp_path, failures, triager):
+    cfg = make_cfg(tmp_path)
+    lf, chat, jira = FakeLF(failures), FakeChat(), FakeJira()
+    fixer = FakeFixer(FixResult("fixed", "1", "CRAWL_MISMATCH", "MOSO-9", ["c1"], ["T.java"], {"rate": "PASSED", "adj": "PASSED"}, "ok"))
+    return Bot(cfg, lf, chat, jira, triager, fixer, LENDERS, now=lambda: NOW, spawn=lambda fn: fn()), cfg, chat
+
+
+def test_triage_crash_releases_the_seen_key_so_the_next_poll_retries(tmp_path):
+    f1 = RateFailure("k1", "c", "AAALendings", "Error while parsing rates for AAALendings")
+    triager = FlakyTriager({"AAALendings": layout("AAALendings")})
+    bot, cfg, chat = poller(tmp_path, [f1], triager)
+    assert bot.poll_once() == []
+    st = NightState.load(cfg.state_dir, "2026-09-03")
+    assert "k1" not in st.seen_keys and st.lenders == {} and chat.posts == []
+    assert [r.lender for r in bot.poll_once()] == ["AAALendings"]
+    st = NightState.load(cfg.state_dir, "2026-09-03")
+    assert st.lenders["AAALendings|QM"].status == TRIAGED and "k1" in st.seen_keys
+    assert len(chat.posts) == 1
+
+
+def test_prepare_crash_releases_every_fresh_key_and_retries_next_poll(tmp_path):
+    f1 = RateFailure("k1", "c", "AAALendings", "Error while parsing rates for AAALendings")
+    f2 = RateFailure("k2", "c", "Provident", "Error while parsing rates for Provident")
+    triager = FlakyPrepareTriager({"AAALendings": layout("AAALendings"), "Provident": layout("Provident")})
+    bot, cfg, chat = poller(tmp_path, [f1, f2], triager)
+    assert bot.poll_once() == []
+    st = NightState.load(cfg.state_dir, "2026-09-03")
+    assert st.seen_keys == set() and st.prepared is False and chat.posts == []
+    assert [r.lender for r in bot.poll_once()] == ["AAALendings", "Provident"]
+    assert NightState.load(cfg.state_dir, "2026-09-03").prepared is True
+    assert triager.prepared == 2
+
+
+def test_triage_message_uses_the_failure_time_not_the_poll_time(tmp_path):
+    f1 = RateFailure("k1", "2026-09-03T14:10", "AAALendings", "Error while parsing rates for AAALendings")
+    bot, cfg, chat, *_ = build(tmp_path, [f1], {"AAALendings": layout("AAALendings")})
+    bot.poll_once()
+    assert chat.posts[0][0].startswith("🔎 *AAA Lendings* (QM) failed 21:10 ICT")

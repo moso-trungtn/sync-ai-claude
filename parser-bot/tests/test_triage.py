@@ -1,4 +1,4 @@
-import os, subprocess, time
+import logging, os, subprocess, time
 from datetime import datetime
 from pathlib import Path
 from parser_bot.config import Config
@@ -99,3 +99,44 @@ def test_gsutil_timeout_does_not_escape_triage(tmp_path):
     res = t.triage(RateFailure("k", "c", "Provident", "Error while parsing rates for Provident ← login rejected"))
     assert res.downloaded is False
     assert res.classification.cls == "LOGIN_DOWNLOAD"
+
+
+class NoReportRunner(Runner):
+    """Downloads a sheet, but parser-fix.sh dies before writing a report."""
+    def __call__(self, cmd, cwd=None, timeout=None, **kw):
+        if cmd[0] == "./parser-fix.sh":
+            self.calls.append((cmd, cwd, timeout))
+            return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="parser-fix.sh: mvn blew up")
+        return super().__call__(cmd, cwd=cwd, timeout=timeout, **kw)
+
+
+def test_stale_report_from_an_earlier_run_is_not_reused(tmp_path):
+    cfg = make_cfg(tmp_path); runner = NoReportRunner(cfg)
+    stale = Path(cfg.report_dir) / "unionhome" / "report.txt"
+    stale.parent.mkdir(parents=True)
+    stale.write_text(LAYOUT_REPORT)
+    old = time.time() - 100
+    os.utime(stale, (old, old))
+    t = Triager(cfg, runner=runner, now=lambda: NOW)
+    res = t.triage(RateFailure("k", "c", "UnionHome", "Error while parsing rates for UnionHome"))
+    assert res.downloaded is True and res.report_path == ""
+    assert res.classification.cls == "LAYOUT" and res.classification.error_type == "UNKNOWN"
+    assert res.classification.cause == "Tests failed; see report"
+
+
+class FailingDownloadRunner(Runner):
+    """download-ratesheet.sh exits non-zero and says why only on stderr."""
+    def __call__(self, cmd, cwd=None, timeout=None, **kw):
+        p = super().__call__(cmd, cwd=cwd, timeout=timeout, **kw)
+        if cmd[0] == "./download-ratesheet.sh":
+            return subprocess.CompletedProcess(cmd, 1, stdout=p.stdout, stderr="portal login failed")
+        return p
+
+
+def test_non_zero_shell_exit_is_logged(tmp_path, caplog):
+    cfg = make_cfg(tmp_path); runner = FailingDownloadRunner(cfg, download_ok=False)
+    t = Triager(cfg, runner=runner, now=lambda: NOW)
+    with caplog.at_level(logging.WARNING, logger="parser-bot"):
+        t.triage(RateFailure("k", "c", "Provident", "Error while parsing rates for Provident ← login rejected"))
+    msgs = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+    assert any("download-ratesheet.sh" in m and "exited 1" in m and "portal login failed" in m for m in msgs)

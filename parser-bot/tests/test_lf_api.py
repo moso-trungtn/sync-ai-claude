@@ -50,3 +50,12 @@ def test_failures_since_filters_status_false_only():
     assert url == "https://lf/api/entity/v1/rate_update"
     assert params == {"created>": "2026-09-03T10:00", "l": "200", "o": "-created"}
     assert headers == {"Authorization": "Bearer tok1"}
+
+
+def test_created_at_reads_the_builder_timestamp_as_utc():
+    from datetime import datetime, timezone
+    assert RateFailure("k", "2026-09-03T14:10", "L", "d").created_at() == datetime(2026, 9, 3, 14, 10, tzinfo=timezone.utc)
+    assert RateFailure("k", "2026-09-03T14:10:09", "L", "d").created_at() == datetime(2026, 9, 3, 14, 10, 9, tzinfo=timezone.utc)
+    assert RateFailure("k", "2026-09-03T14:10:09Z", "L", "d").created_at() == datetime(2026, 9, 3, 14, 10, 9, tzinfo=timezone.utc)
+    assert RateFailure("k", "", "L", "d").created_at() is None
+    assert RateFailure("k", "not a date", "L", "d").created_at() is None
