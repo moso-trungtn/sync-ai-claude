@@ -2,3 +2,6 @@ __pycache__/
 *.pyc
 .DS_Store
 *.zip
+
+# SDD scratch workspaces (ledgers, briefs, review packages)
+.superpowers/
