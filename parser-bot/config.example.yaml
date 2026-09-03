@@ -1,0 +1,34 @@
+space: spaces/AAQASuO_evs
+lf:
+  base_url: https://loanfactory.com
+  ns: LOAN_FACTORY
+  credentials_file: ~/.config/parser-bot/lf.json      # {"username": "parser-bot@loanfactory.com", "password": "..."}
+jira:
+  base_url: https://mosoteam.atlassian.net
+  email_env: JIRA_EMAIL
+  token_env: JIRA_API_TOKEN
+  project: MOSO
+  assignee_account_id: "712020:c86c8eaf-7415-4e7d-8afe-59fd529b6fac"
+gcp:
+  subscription: projects/lenderrate-master/subscriptions/parser-bot-sub
+  service_account_file: ~/.config/parser-bot/sa.json
+paths:
+  bot_root: /Users/trungthach/IdeaProjects/worktrees/bot     # contains moso-pricing/ and packs/
+  state_dir: /Users/trungthach/IdeaProjects/tools/parser-bot/state
+  cookbook: /Users/trungthach/.claude/projects/-Users-trungthach-IdeaProjects/memory/parser_fix_cookbook.md
+  report_dir: /tmp/parser-fix
+  lenders_json: /Users/trungthach/IdeaProjects/tools/parser-bot/state/lenders.json
+  aliases: /Users/trungthach/IdeaProjects/tools/parser-bot/aliases.yaml
+  gcs_bucket: lender-rate-ratesheet
+schedule:
+  timezone: Asia/Ho_Chi_Minh
+  poll_start: "19:30"
+  poll_end: "05:30"
+  poll_interval_sec: 120
+  lookback_hours: 6
+commands_enabled: false
+allowlist: []
+timeouts:
+  triage_sec: 900
+  fix_sec: 3600
+  prepare_sec: 1500
