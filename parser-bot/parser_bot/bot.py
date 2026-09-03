@@ -26,13 +26,14 @@ log = logging.getLogger("parser-bot")
 
 class Bot:
     def __init__(self, cfg: Config, lf, chat, jira, triager, fixer, lenders: LenderIndex, now=None, dry_run: bool = False,
-                 spawn=None):
+                 spawn=None, puller=None):
         self.cfg, self.lf, self.chat, self.jira, self.triager, self.fixer, self.lenders = cfg, lf, chat, jira, triager, fixer, lenders
         self.now = now or (lambda: datetime.now(tz=ICT))
         self.dry_run = dry_run
         self.fix_lock = threading.Lock()
         self.state_lock = threading.Lock()
         self.spawn = spawn or (lambda fn: threading.Thread(target=fn, daemon=True).start())
+        self.puller = puller
 
     # ---- helpers -------------------------------------------------------------------------------
     def state(self) -> NightState:
@@ -237,9 +238,15 @@ class Bot:
         return "\n".join(body)
 
     # ---- loops ---------------------------------------------------------------------------------
+    def _pubsub(self):
+        """One PubSubPuller for the life of the bot — a client per pull leaked a gRPC channel each time."""
+        if self.puller is None:
+            from .pubsub import PubSubPuller
+            self.puller = PubSubPuller(self.cfg.gcp_subscription, self.cfg.gcp_service_account_file)
+        return self.puller
+
     def listen_once(self) -> None:
-        from .pubsub import pull_events
-        for ev in pull_events(self.cfg.gcp_subscription, self.cfg.gcp_service_account_file):
+        for ev in self._pubsub().pull():
             cmd = parse_event(ev)
             if not cmd:
                 continue
@@ -272,8 +279,7 @@ class Bot:
                     time.sleep(10)
             if once:
                 return
-            if not listener:
-                time.sleep(min(30, self.cfg.poll_interval_sec))
+            time.sleep(self.cfg.listener_idle_sec if listener else min(30, self.cfg.poll_interval_sec))
 
 
 def build_bot(cfg: Config, dry_run: bool) -> Bot:

@@ -21,5 +21,6 @@ def test_load_config_expands_paths_and_applies_defaults(tmp_path):
     assert cfg.commands_enabled is False          # default when missing
     assert cfg.allowlist == []                    # default when missing
     assert cfg.poll_interval_sec == 60 and cfg.fix_sec == 20 and cfg.lookback_hours == 6
+    assert cfg.listener_idle_sec == 2             # default when schedule.listener_idle_sec is missing
     assert cfg.jira_assignee == "1:2"
     assert os.path.isabs(cfg.report_dir) and cfg.report_dir.endswith("/tmp/pf")

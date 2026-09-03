@@ -38,6 +38,14 @@ class FakeJira:
     def comment(self, key, text): self.comments.append((key, text))
 
 
+class FakePuller:
+    """Stands in for PubSubPuller: hands back a canned event list once, then nothing."""
+    def __init__(self, events): self.events, self.pulls = events, 0
+    def pull(self, max_messages=10, timeout=30):
+        self.pulls += 1
+        return self.events if self.pulls == 1 else []
+
+
 class FakeFixer:
     def __init__(self, result): self.result, self.calls = result, []
     def run(self, lender, key, plan_only=False): self.calls.append((lender, key, plan_only)); return self.result
@@ -208,3 +216,26 @@ def test_worker_crash_with_missing_state_key_still_posts(tmp_path):
     bot._run_fix("Ghost|QM", "spaces/S/threads/x")   # no such lender in state — must not raise
     assert "fix crashed" in chat.posts[-1][0]
     assert chat.posts[-1][2] == "spaces/S/threads/x"
+
+
+def status_event(text, thread):
+    return {"type": "MESSAGE", "space": {"name": "spaces/S"},
+            "message": {"text": text, "sender": {"type": "HUMAN", "email": "t@lf", "displayName": "Trung"},
+                        "thread": {"name": thread}}}
+
+
+def test_listen_once_uses_the_injected_puller_and_reuses_it(tmp_path):
+    f1 = RateFailure("k1", "c", "AAALendings", "Error while parsing rates for AAALendings")
+    cfg = make_cfg(tmp_path); cfg.commands_enabled = True
+    lf, chat, jira = FakeLF([f1]), FakeChat(), FakeJira()
+    fixer = FakeFixer(FixResult("fixed", "1", "CRAWL_MISMATCH", "MOSO-9", ["c1"], ["T.java"], {"rate": "PASSED", "adj": "PASSED"}, "ok"))
+    puller = FakePuller([status_event("@Parser Bot status", "spaces/S/threads/t7")])
+    bot = Bot(cfg, lf, chat, jira, FakeTriager({"AAALendings": layout("AAALendings")}), fixer, LENDERS,
+              now=lambda: NOW, spawn=lambda fn: fn(), puller=puller)
+    bot.poll_once()
+    bot.listen_once()
+    assert chat.posts[-1][0].startswith("Night 2026-09-03")
+    assert "AAA Lendings (QM): TRIAGED" in chat.posts[-1][0]
+    assert chat.posts[-1][2] == "spaces/S/threads/t7"
+    bot.listen_once()
+    assert bot.puller is puller and puller.pulls == 2

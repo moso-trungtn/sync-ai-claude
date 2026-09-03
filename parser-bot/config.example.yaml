@@ -26,6 +26,7 @@ schedule:
   poll_end: "05:30"
   poll_interval_sec: 120
   lookback_hours: 6
+  listener_idle_sec: 2       # pause between Pub/Sub pulls; keeps the listener loop off the CPU
 commands_enabled: false
 allowlist: []
 timeouts:

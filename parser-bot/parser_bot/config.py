@@ -36,6 +36,7 @@ class Config:
     triage_sec: int
     fix_sec: int
     prepare_sec: int
+    listener_idle_sec: int = 2
     commands_enabled: bool = False
     allowlist: list[str] = field(default_factory=list)
 
@@ -83,6 +84,7 @@ def load_config(path: str) -> Config:
         triage_sec=int(to["triage_sec"]),
         fix_sec=int(to["fix_sec"]),
         prepare_sec=int(to["prepare_sec"]),
+        listener_idle_sec=int(sched.get("listener_idle_sec", 2)),
         commands_enabled=bool(raw.get("commands_enabled", False)),
         allowlist=list(raw.get("allowlist", []) or []),
     )
