@@ -33,7 +33,7 @@ Spec: `docs/superpowers/specs/2026-09-03-parser-bot-design.md`. Plan: `docs/supe
 
 ## Run
 
-- Smoke test (no posting, no Jira, no claude): `./run.sh --once --dry-run --force-window`
+- Smoke test (no posting, no Jira, no claude): `./run.sh --once --dry-run --no-listener --force-window`
 - One real poll + pull: `./run.sh --once --force-window`
 - Daemon: `cp launchd/com.loanfactory.parser-bot.plist ~/Library/LaunchAgents/ && launchctl load ~/Library/LaunchAgents/com.loanfactory.parser-bot.plist`
 - Logs: `logs/bot.log`, `logs/bot.err`. State: `state/<night>.json`.

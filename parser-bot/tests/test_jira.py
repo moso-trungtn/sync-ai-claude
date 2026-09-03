@@ -1,3 +1,5 @@
+import logging
+
 from parser_bot.jira import JiraClient
 from parser_bot.state import NightState
 
@@ -57,3 +59,13 @@ def test_append_lender_and_ensure_ticket(tmp_path):
     assert j.ensure_ticket(st, "AAA Lendings", "09/03/2026") == "MOSO-9" and st.ticket == "MOSO-9"
     j.comment("MOSO-9", "hello")
     assert s.calls[-1] == ("POST", "https://j/rest/api/2/issue/MOSO-9/comment", {"body": "hello"})
+
+
+def test_missing_transition_is_logged(caplog):
+    s = FakeJira(); s.transitions = []
+    j = JiraClient("https://j", "me@x", "tok", "MOSO", "1:2", session=s)
+    with caplog.at_level(logging.WARNING, logger="parser-bot"):
+        j._transition("MOSO-9", "Start Progress")
+    msgs = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+    assert any("Start Progress" in m and "MOSO-9" in m for m in msgs)
+    assert not [c for c in s.calls if c[0] == "POST"]

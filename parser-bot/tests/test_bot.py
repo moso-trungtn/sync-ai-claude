@@ -1,5 +1,8 @@
 from datetime import datetime
-from parser_bot.bot import Bot
+
+import pytest
+
+from parser_bot.bot import Bot, build_bot
 from parser_bot.classify import Classification
 from parser_bot.commands import Command
 from parser_bot.fixer import FixResult
@@ -33,9 +36,24 @@ class FakeTriager:
 
 
 class FakeJira:
-    def __init__(self): self.comments = []
+    def __init__(self): self.comments, self.created, self.appended = [], [], []
+    def create_night_ticket(self, date_pt, labels): self.created.append((date_pt, list(labels))); return "MOSO-9"
+    def append_lender(self, key, label): self.appended.append((key, label))
     def ensure_ticket(self, state, label, date_pt): state.ticket = state.ticket or "MOSO-9"; return state.ticket
     def comment(self, key, text): self.comments.append((key, text))
+
+
+class LockCheckingJira(FakeJira):
+    """Fails the test if any Jira REST call happens while bot.state_lock is held."""
+    def __init__(self, holder): super().__init__(); self.holder = holder
+    def _check(self, what):
+        assert self.holder["bot"].state_lock.locked() is False, f"{what} must not run inside the state lock"
+    def create_night_ticket(self, date_pt, labels):
+        self._check("create_night_ticket"); return super().create_night_ticket(date_pt, labels)
+    def append_lender(self, key, label):
+        self._check("append_lender"); return super().append_lender(key, label)
+    def comment(self, key, text):
+        self._check("comment"); return super().comment(key, text)
 
 
 class FakePuller:
@@ -298,3 +316,53 @@ def test_triage_message_uses_the_failure_time_not_the_poll_time(tmp_path):
     bot, cfg, chat, *_ = build(tmp_path, [f1], {"AAALendings": layout("AAALendings")})
     bot.poll_once()
     assert chat.posts[0][0].startswith("🔎 *AAA Lendings* (QM) failed 21:10 ICT")
+
+
+def test_jira_calls_run_outside_the_state_lock_and_ticket_is_created_once(tmp_path):
+    f1 = RateFailure("k1", "c", "AAALendings", "Error while parsing rates for AAALendings")
+    f2 = RateFailure("k2", "c", "Provident", "Error while parsing rates for Provident")
+    cfg = make_cfg(tmp_path); cfg.commands_enabled = True
+    holder = {}
+    lf, chat, jira = FakeLF([f1, f2]), FakeChat(), LockCheckingJira(holder)
+    fixer = FakeFixer(FixResult("fixed", "1", "CRAWL_MISMATCH", "MOSO-9", ["c1"], ["T.java"], {"rate": "PASSED", "adj": "PASSED"}, "ok"))
+    bot = Bot(cfg, lf, chat, jira, FakeTriager({"AAALendings": layout("AAALendings"), "Provident": layout("Provident")}),
+              fixer, LENDERS, now=lambda: NOW, spawn=lambda fn: fn())
+    holder["bot"] = bot
+    bot.poll_once()
+    bot.handle_command(Command("fix_all", "", "", "", "", ""))
+    assert jira.created == [("09/03/2026", ["AAA Lendings"])]          # one ticket for the night
+    assert jira.appended == [("MOSO-9", "Provident Funding")]         # the second lender is appended
+    assert NightState.load(cfg.state_dir, "2026-09-03").ticket == "MOSO-9"
+
+
+def test_dry_run_triages_without_posting_or_fixing(tmp_path):
+    f1 = RateFailure("k1", "c", "AAALendings", "Error while parsing rates for AAALendings")
+    cfg = make_cfg(tmp_path); cfg.commands_enabled = True
+    lf, chat, jira = FakeLF([f1]), FakeChat(), FakeJira()
+    fixer = FakeFixer(FixResult("fixed", "1", "CRAWL_MISMATCH", "MOSO-9", ["c1"], ["T.java"], {"rate": "PASSED", "adj": "PASSED"}, "ok"))
+    puller = FakePuller([status_event("@Parser Bot status", "spaces/S/threads/t7")])
+    bot = Bot(cfg, lf, chat, jira, FakeTriager({"AAALendings": layout("AAALendings")}), fixer, LENDERS,
+              now=lambda: NOW, spawn=lambda fn: fn(), dry_run=True, puller=puller)
+    assert [r.lender for r in bot.poll_once()] == ["AAALendings"]
+    assert chat.posts == []
+    st = NightState.load(cfg.state_dir, "2026-09-03")
+    assert st.lenders["AAALendings|QM"].status == TRIAGED and st.lenders["AAALendings|QM"].thread_name == ""
+    assert bot.handle_command(Command("fix", "AAA", "", "", "", "")) == "[dry-run] would fix AAA Lendings"
+    assert fixer.calls == [] and jira.created == [] and jira.comments == []
+    bot.run(once=True, listener=True)
+    assert puller.pulls == 0            # dry-run never opens the listener
+
+
+def test_build_bot_requires_jira_env_unless_dry_run(tmp_path, monkeypatch):
+    cfg = make_cfg(tmp_path)
+    (tmp_path / "lf.json").write_text('{"username": "u", "password": "p"}')
+    (tmp_path / "lenders.json").write_text('{"AAALendings": {"id": 1, "name": "AAA Lendings"}}')
+    cfg.lf_credentials_file = str(tmp_path / "lf.json")
+    cfg.lenders_json = str(tmp_path / "lenders.json")
+    cfg.aliases = str(tmp_path / "aliases.yaml")
+    cfg.jira_email_env, cfg.jira_token_env = "PB_TEST_JIRA_EMAIL", "PB_TEST_JIRA_TOKEN"
+    monkeypatch.delenv("PB_TEST_JIRA_EMAIL", raising=False)
+    monkeypatch.delenv("PB_TEST_JIRA_TOKEN", raising=False)
+    with pytest.raises(RuntimeError, match="PB_TEST_JIRA_EMAIL"):
+        build_bot(cfg, dry_run=False)
+    assert build_bot(cfg, dry_run=True).dry_run is True     # placeholder creds; Jira is never called

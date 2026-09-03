@@ -1,9 +1,13 @@
 """One Jira ticket per night. REST v2 with Basic auth; description in wiki markup, English only."""
 from __future__ import annotations
 
+import logging
+
 import requests
 
 from .state import NightState
+
+log = logging.getLogger("parser-bot")
 
 PREFIX = "[Parser failed] "
 SEP = " · "
@@ -25,6 +29,7 @@ class JiraClient:
                 self.session.post(f"{self.base}/rest/api/2/issue/{key}/transitions",
                                   json={"transition": {"id": t["id"]}}, timeout=30).raise_for_status()
                 return
+        log.warning("Jira transition %r not available for %s", name, key)
 
     def create_night_ticket(self, date_pt: str, labels: list[str]) -> str:
         fields = {

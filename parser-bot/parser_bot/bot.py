@@ -8,6 +8,7 @@ import os
 import threading
 import time
 from datetime import datetime, timedelta
+from pathlib import Path
 
 from . import messages
 from .chat import ChatClient
@@ -212,10 +213,10 @@ class Bot:
 
                 def _prep(st):
                     ls = st.lenders[state_key]
-                    key = self.jira.ensure_ticket(st, label, pacific_date(self.now()))
-                    return ls.channel, ls.tier, ls.cause, ls.error_type, ls.thread_name, key
+                    return ls.channel, ls.tier, ls.cause, ls.error_type, ls.thread_name
 
-                channel, tier, cause, error_type, thread, key = self._update(_prep)
+                channel, tier, cause, error_type, thread = self._update(_prep)
+                key = self._night_ticket(label)   # Jira REST is seconds of network — NO lock held
                 fix: FixResult = self.fixer.run(lender, key)   # no state held — this is the slow part
 
                 def _apply(st):
@@ -244,6 +245,24 @@ class Bot:
                     self._post(f"❌ *{label}* fix crashed: {e}", thread_name=thread_name or thread or None)
                 except Exception:
                     log.exception("could not post crash message for %s", state_key)
+
+    def _night_ticket(self, label: str) -> str:
+        """The night's Jira ticket, creating it on first use. Every REST call stays outside state_lock."""
+        ticket = self._update(lambda st: st.ticket)
+        if ticket:
+            self.jira.append_lender(ticket, label)
+            return ticket
+        key = self.jira.create_night_ticket(pacific_date(self.now()), [label])
+
+        def _claim(st, key=key):
+            if not st.ticket:
+                st.ticket = key
+            return st.ticket
+
+        winner = self._update(_claim)
+        if winner != key:
+            self.jira.append_lender(winner, label)   # another worker created the ticket first
+        return winner
 
     @staticmethod
     def _jira_comment(label: str, channel: str, error_type: str, cause: str, tier: str, fix: FixResult) -> str:
@@ -280,6 +299,9 @@ class Bot:
 
     def run(self, once: bool = False, listener: bool = True) -> None:
         last_poll = 0.0
+        if listener and self.dry_run:
+            log.info("dry-run: listener disabled")
+            listener = False
         while True:
             now = self.now()
             if in_window(now, self.cfg.poll_start, self.cfg.poll_end) and time.time() - last_poll >= self.cfg.poll_interval_sec:
@@ -299,12 +321,21 @@ class Bot:
             time.sleep(self.cfg.listener_idle_sec if listener else min(30, self.cfg.poll_interval_sec))
 
 
+def _jira_creds(cfg: Config, dry_run: bool) -> tuple[str, str]:
+    """Jira creds from the environment. A dry run never calls Jira, so placeholders are fine there."""
+    email, token = os.environ.get(cfg.jira_email_env), os.environ.get(cfg.jira_token_env)
+    for name, value in ((cfg.jira_email_env, email), (cfg.jira_token_env, token)):
+        if not value and not dry_run:
+            raise RuntimeError(f"{name} is not set — export it (see README step 2) or run with --dry-run")
+    return email or "dry-run", token or "dry-run"
+
+
 def build_bot(cfg: Config, dry_run: bool) -> Bot:
-    creds = json.loads(open(cfg.lf_credentials_file, encoding="utf-8").read())
+    creds = json.loads(Path(cfg.lf_credentials_file).read_text(encoding="utf-8"))
     lf = LFClient(cfg.lf_base_url, cfg.lf_ns, creds["username"], creds["password"])
     chat = ChatClient(cfg.gcp_service_account_file, cfg.space)
-    jira = JiraClient(cfg.jira_base_url, os.environ[cfg.jira_email_env], os.environ[cfg.jira_token_env],
-                      cfg.jira_project, cfg.jira_assignee)
+    email, token = _jira_creds(cfg, dry_run)
+    jira = JiraClient(cfg.jira_base_url, email, token, cfg.jira_project, cfg.jira_assignee)
     return Bot(cfg, lf, chat, jira, Triager(cfg), Fixer(cfg), load_index(cfg.lenders_json, cfg.aliases), dry_run=dry_run)
 
 
