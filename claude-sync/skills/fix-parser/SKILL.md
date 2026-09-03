@@ -41,8 +41,9 @@ Rules that differ from interactive mode:
    Never call AskUserQuestion. If something is ambiguous, choose the safest option and record it in `notes`.
 3. **No Jira transitions.** The bot owns the ticket. Do not change status; you may add a comment.
 4. **Branch.** Before editing, in BOTH clones: `git fetch origin && git checkout -B <KEY> origin/master`.
-5. **Work exactly as STEP 3–4** (build moso-pricing jar → download → update inputStream refs → first test pass →
-   classify → tier fix → verify BOTH `RateParserTest` and `AdjustmentParsersTest` → update cookbook).
+5. **Work as STEP 3–4 with three exceptions:** skip Step 4j (Stage, NO COMMIT — rule 7 below replaces it), do not loop in
+   Step 4k (auto mode handles exactly the one `--lender`; after its JSON summary the run ends), and skip STEP 5 entirely
+   (no summary table; the JSON block in rule 8 is the only output).
 6. **`--plan-only`.** Stop after classification. Print the summary with `"status": "planned"`, revert any file changes
    (`git checkout -- .` in both clones, keep downloaded sheets), do not commit.
 7. **Commit + push (auto mode only; interactive mode still never commits).** One commit per repo touched:
@@ -536,6 +537,8 @@ entry.notes += "Failed on <date>: <reason>"
 
 ### Step 4j: Stage Changes (NO COMMIT)
 
+_Interactive mode only. In AUTO MODE, rule 7 (commit + push the KEY branch) replaces this step._
+
 Stage the changes for this lender so they're ready for the user to review:
 
 ```bash
@@ -618,4 +621,4 @@ Total: N fixed, M skipped
 
 9. **Memory-First Paths**: Use `infrastructure_index.md` → `cookbook cached paths` → `lender-info.sh`. Never broad search.
 
-10. **Verify Before Done**: Always run verification test. Flow: Classify → Fix (by tier) → Verify → Learn → Stage (no commit). User commits manually.
+10. **Verify Before Done**: Always run verification test. Flow: Classify → Fix (by tier) → Verify → Learn → Stage (no commit). User commits manually. (interactive mode; AUTO MODE commits and pushes the KEY branch per AUTO MODE rule 7)
