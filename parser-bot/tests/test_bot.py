@@ -179,6 +179,14 @@ def test_worker_crash_marks_fix_failed_and_posts(tmp_path):
     assert st.lenders["AAALendings|QM"].status == FIX_FAILED
     assert "boom" in st.lenders["AAALendings|QM"].notes
     assert "fix crashed" in chat.posts[-1][0]
+    # the fix_all path passes no thread — the crash must still land in the lender's triage thread
+    bot._run_fix("AAALendings|QM", None)
+    assert "fix crashed" in chat.posts[-1][0]
+    assert chat.posts[-1][2] == "spaces/S/threads/AAALendings-09-03"
+    # an explicit thread_name still wins over the lender's triage thread
+    bot._run_fix("AAALendings|QM", "spaces/S/threads/x")
+    assert "fix crashed" in chat.posts[-1][0]
+    assert chat.posts[-1][2] == "spaces/S/threads/x"
 
 
 def test_prepare_runs_outside_state_lock(tmp_path):

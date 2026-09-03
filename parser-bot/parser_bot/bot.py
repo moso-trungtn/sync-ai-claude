@@ -41,7 +41,7 @@ class Bot:
     def _update(self, fn):
         """Load → mutate → save under state_lock, as one short critical section.
 
-        No NightState instance may be held across triage(), prepare_night(), fixer.run(), or a
+        No NightState instance may be held across triage(), prepare(), fixer.run(), or a
         chat.post() call — those can each take seconds to minutes, and NightState.save() is a
         full-snapshot overwrite, so holding one that long would silently discard whatever the
         other thread (poller vs. command worker) wrote in the meantime.
@@ -186,6 +186,7 @@ class Bot:
 
     def _run_fix(self, state_key: str, thread_name: str | None) -> None:
         label = state_key   # fallback if we crash before resolving the real label below
+        thread = None       # lender's own triage thread, resolved in _prep below
         with self.fix_lock:
             try:
                 lender = state_key.split("|", 1)[0]
@@ -222,7 +223,7 @@ class Bot:
                 except Exception:
                     log.exception("could not record fix failure for %s", state_key)
                 try:
-                    self._post(f"❌ *{label}* fix crashed: {e}", thread_name=thread_name or None)
+                    self._post(f"❌ *{label}* fix crashed: {e}", thread_name=thread_name or thread or None)
                 except Exception:
                     log.exception("could not post crash message for %s", state_key)
 
