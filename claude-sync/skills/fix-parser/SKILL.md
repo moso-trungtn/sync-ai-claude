@@ -1,6 +1,6 @@
 ---
 name: fix-parser
-description: Smart automated pipeline that fixes parser-failed lenders from Jira. Learns from past fixes, classifies errors into tiers (auto-fix vs agent-fix), and gets smarter over time. Usage: /fix-parser [@assigneeId]
+description: Smart automated pipeline that fixes parser-failed lenders from Jira. Learns from past fixes, classifies errors into tiers (auto-fix vs agent-fix), and gets smarter over time. Usage: /fix-parser [@assigneeId] | /fix-parser --auto --lender <LenderType> --key <MOSO-n> [--plan-only]
 argument-hint: "[@assigneeId] (optional, defaults to Trung Thach)"
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Agent, mcp__claude_ai_Atlassian__searchJiraIssuesUsingJql, mcp__claude_ai_Atlassian__getJiraIssue, mcp__claude_ai_Atlassian__editJiraIssue, mcp__claude_ai_Atlassian__getTransitionsForJiraIssue, mcp__claude_ai_Atlassian__transitionJiraIssue
 ---
@@ -26,6 +26,37 @@ PACKS_LOAN = "/Users/trungthach/IdeaProjects/packs/loan"
 MOSO_MEMORY_DIR = "/Users/trungthach/.claude/projects/-Users-trungthach-IdeaProjects/memory"
 COOKBOOK_FILE = "/Users/trungthach/.claude/projects/-Users-trungthach-IdeaProjects/memory/parser_fix_cookbook.md"
 ```
+
+---
+
+## AUTO MODE (`--auto`) — used by Parser Bot, no human at the keyboard
+
+Arguments: `--auto --lender <LenderType enum name> --key <MOSO-n> [--plan-only]`.
+
+Rules that differ from interactive mode:
+
+1. **Paths.** If env `PARSER_BOT_ROOT` is set, use `$PARSER_BOT_ROOT/moso-pricing` and `$PARSER_BOT_ROOT/packs/loan`
+   instead of `MOSO_PRICING` / `PACKS_LOAN`. Never touch `/Users/trungthach/IdeaProjects/moso-pricing` or `.../packs`.
+2. **No prompts.** Skip STEP 1 (JQL) and STEP 2 (task list). The single lender is `--lender`; the Jira key is `--key`.
+   Never call AskUserQuestion. If something is ambiguous, choose the safest option and record it in `notes`.
+3. **No Jira transitions.** The bot owns the ticket. Do not change status; you may add a comment.
+4. **Branch.** Before editing, in BOTH clones: `git fetch origin && git checkout -B <KEY> origin/master`.
+5. **Work exactly as STEP 3–4** (build moso-pricing jar → download → update inputStream refs → first test pass →
+   classify → tier fix → verify BOTH `RateParserTest` and `AdjustmentParsersTest` → update cookbook).
+6. **`--plan-only`.** Stop after classification. Print the summary with `"status": "planned"`, revert any file changes
+   (`git checkout -- .` in both clones, keep downloaded sheets), do not commit.
+7. **Commit + push (auto mode only; interactive mode still never commits).** One commit per repo touched:
+   `git add <files you changed>` (never `-A`), message `KEY: fix <LenderType> parser (<error_type>)`, no body,
+   no trailers. Then `git push -u origin <KEY>`. Never push master. If tests fail after 3 escalations, still commit
+   the attempt on the branch with message `KEY: WIP <LenderType> parser fix (tests failing)` and report `"status": "failed"`.
+8. **Final output.** The LAST thing printed must be exactly one fenced block:
+
+```json
+{"lender": "<LenderType>", "tier": "0|1|2", "error_type": "<CRAWL_MISMATCH|...>", "status": "fixed|failed|planned",
+ "branch": "<KEY>", "commits": ["<sha7>", "..."], "files": ["<relative paths>"],
+ "tests": {"rate": "PASSED|FAILED", "adj": "PASSED|FAILED"}, "notes": "<one sentence: what changed or why it failed>"}
+```
+   Nothing after this block. `commits` are short SHAs from `git log origin/master..<KEY> --format=%h` in each repo.
 
 ---
 
