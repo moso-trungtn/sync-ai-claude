@@ -1,0 +1,82 @@
+import os, subprocess, time
+from datetime import datetime
+from pathlib import Path
+from parser_bot.config import Config
+from parser_bot.lf_api import RateFailure
+from parser_bot.nights import ICT
+from parser_bot.state import NightState
+from parser_bot.triage import Triager
+
+LAYOUT_REPORT = (Path(__file__).parent / "fixtures" / "report_layout.txt").read_text()
+COOKBOOK = (Path(__file__).parent / "fixtures" / "cookbook_sample.md").read_text()
+
+
+def make_cfg(tmp_path):
+    bot = tmp_path / "bot"
+    (bot / "packs" / "loan" / "src" / "test" / "resources" / "ratesheets").mkdir(parents=True)
+    (bot / "moso-pricing").mkdir()
+    cb = tmp_path / "cookbook.md"; cb.write_text(COOKBOOK)
+    return Config(space="s", lf_base_url="", lf_ns="", lf_credentials_file="", jira_base_url="", jira_email_env="",
+                  jira_token_env="", jira_project="MOSO", jira_assignee="", gcp_subscription="",
+                  gcp_service_account_file="", bot_root=str(bot), state_dir=str(tmp_path / "state"),
+                  cookbook=str(cb), report_dir=str(tmp_path / "pf"), lenders_json="", aliases="", gcs_bucket="bkt",
+                  timezone="Asia/Ho_Chi_Minh", poll_start="19:30", poll_end="05:30", poll_interval_sec=1,
+                  lookback_hours=6, triage_sec=5, fix_sec=5, prepare_sec=5)
+
+
+class Runner:
+    """Fake shell: records commands, simulates download-ratesheet.sh and parser-fix.sh side effects."""
+    def __init__(self, cfg, download_ok=True, report=LAYOUT_REPORT, gsutil_listing=""):
+        self.cfg, self.download_ok, self.report, self.gsutil_listing = cfg, download_ok, report, gsutil_listing
+        self.calls = []
+    def __call__(self, cmd, cwd=None, timeout=None, **kw):
+        self.calls.append((cmd, cwd))
+        out = ""
+        if cmd[0] == "./download-ratesheet.sh" and self.download_ok:
+            time.sleep(0.01)
+            f = Path(cwd) / "src/test/resources/ratesheets" / f"{cmd[1].lower()}_20260903.xlsx"
+            f.write_text("x"); out = "  → Downloading... OK (10 bytes)"
+        if cmd[0] == "gsutil" and cmd[1] == "ls":
+            out = self.gsutil_listing
+        if cmd[0] == "./parser-fix.sh":
+            d = Path(self.cfg.report_dir) / cmd[1].lower(); d.mkdir(parents=True, exist_ok=True)
+            (d / "report.txt").write_text(self.report)
+        return subprocess.CompletedProcess(cmd, 0, stdout=out, stderr="")
+
+
+NOW = datetime(2026, 9, 3, 21, 14, tzinfo=ICT)
+
+
+def test_triage_layout_failure_runs_download_then_tests_and_predicts_tier(tmp_path):
+    cfg = make_cfg(tmp_path); runner = Runner(cfg)
+    t = Triager(cfg, runner=runner, now=lambda: NOW)
+    res = t.triage(RateFailure("k", "2026-09-03T14:10", "PennyMac", "Error while parsing rates for PennyMac from Cron Job"))
+    assert res.channel == "QM" and res.downloaded is True and res.sheet.endswith("pennymac_20260903.xlsx")
+    assert res.classification.cls == "LAYOUT" and res.classification.error_type == "CRAWL_MISMATCH"
+    assert (res.tier, res.streak, res.hint) == ("1", 6, True)
+    assert runner.calls[0][0] == ["./download-ratesheet.sh", "PennyMac", "--no-detect", "--no-git", "--no-java"]
+    assert runner.calls[0][1] == cfg.packs_loan
+    assert runner.calls[1][0][:2] == ["./parser-fix.sh", "PennyMac"] and "--both" in runner.calls[1][0]
+
+
+def test_nonqm_channel_adds_flag_and_no_sheet_becomes_not_code(tmp_path):
+    cfg = make_cfg(tmp_path); runner = Runner(cfg, download_ok=False)
+    t = Triager(cfg, runner=runner, now=lambda: NOW)
+    res = t.triage(RateFailure("k", "c", "Provident", "Error while parsing rates for ProvidentNonQM ← login rejected"))
+    assert res.channel == "NonQM"
+    assert runner.calls[0][0] == ["./download-ratesheet.sh", "Provident", "--nonqm", "--no-detect", "--no-git", "--no-java"]
+    assert any(c[0][:2] == ["gsutil", "ls"] for c in runner.calls)      # GCS fallback attempted
+    assert res.downloaded is False and res.classification.cls == "LOGIN_DOWNLOAD"
+    assert not any(c[0][0] == "./parser-fix.sh" for c in runner.calls)
+
+
+def test_prepare_night_runs_once(tmp_path):
+    cfg = make_cfg(tmp_path); runner = Runner(cfg)
+    st = NightState.load(cfg.state_dir, "2026-09-03")
+    t = Triager(cfg, runner=runner, now=lambda: NOW)
+    t.prepare_night(st); t.prepare_night(st)
+    cmds = [c[0] for c in runner.calls]
+    assert cmds == [["git", "-C", cfg.moso_pricing, "pull", "--ff-only"],
+                    ["git", "-C", os.path.join(cfg.bot_root, "packs"), "pull", "--ff-only"],
+                    ["mvn", "-q", "install", "-DskipTests", "-Pjar-packaging", "-Dgwt.compiler.skip=true"]]
+    assert st.prepared is True
