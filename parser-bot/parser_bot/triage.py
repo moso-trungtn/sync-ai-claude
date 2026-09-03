@@ -58,8 +58,8 @@ class Triager:
     def prepare_night(self, state: NightState) -> None:
         if state.prepared:
             return
-        self._run(["git", "-C", self.cfg.moso_pricing, "pull", "--ff-only"], cwd=self.cfg.bot_root, timeout=300)
-        self._run(["git", "-C", os.path.join(self.cfg.bot_root, "packs"), "pull", "--ff-only"], cwd=self.cfg.bot_root, timeout=300)
+        self._run(["git", "-C", self.cfg.moso_pricing, "pull", "--ff-only"], cwd=self.cfg.bot_root, timeout=self.cfg.prepare_sec)
+        self._run(["git", "-C", os.path.join(self.cfg.bot_root, "packs"), "pull", "--ff-only"], cwd=self.cfg.bot_root, timeout=self.cfg.prepare_sec)
         self._run(["mvn", "-q", "install", "-DskipTests", "-Pjar-packaging", "-Dgwt.compiler.skip=true"],
                   cwd=self.cfg.moso_pricing, timeout=self.cfg.prepare_sec)
         state.prepared = True
@@ -72,23 +72,34 @@ class Triager:
         cmd = ["./download-ratesheet.sh", lender] + (["--nonqm"] if channel == "NonQM" else []) + \
               ["--no-detect", "--no-git", "--no-java"]
         try:
-            self._run(cmd, cwd=self.cfg.packs_loan, timeout=300)
+            self._run(cmd, cwd=self.cfg.packs_loan, timeout=self.cfg.triage_sec)
         except subprocess.TimeoutExpired:
             return ""
         files = self._new_files(resources, t0)
-        return files[0] if files else self._gcs_fallback(lender, channel)
+        if files:
+            return files[0]
+        try:
+            return self._gcs_fallback(lender, channel)
+        except subprocess.TimeoutExpired:
+            return ""
 
     def _gcs_fallback(self, lender: str, channel: str) -> str:
         name = lender + ("NonQM" if channel == "NonQM" else "")
         now = self.now()
         for day in {now.astimezone(ICT).date(), now.astimezone(PT).date()}:
             prefix = f"gs://{self.cfg.gcs_bucket}/history/{name}/{day:%Y}/{day:%m}/{day:%d}/"
-            ls = self._run(["gsutil", "ls", prefix], cwd=self.cfg.bot_root, timeout=120)
+            try:
+                ls = self._run(["gsutil", "ls", prefix], cwd=self.cfg.bot_root, timeout=self.cfg.triage_sec)
+            except subprocess.TimeoutExpired:
+                return ""
             objects = [ln.strip() for ln in (ls.stdout or "").splitlines() if ln.strip().startswith("gs://")]
             if objects:
                 dest = os.path.join("/tmp/parser-bot", lender.lower())
                 os.makedirs(dest, exist_ok=True)
-                self._run(["gsutil", "cp", objects[-1], dest + "/"], cwd=self.cfg.bot_root, timeout=300)
+                try:
+                    self._run(["gsutil", "cp", objects[-1], dest + "/"], cwd=self.cfg.bot_root, timeout=self.cfg.triage_sec)
+                except subprocess.TimeoutExpired:
+                    return ""
                 local = os.path.join(dest, objects[-1].rsplit("/", 1)[-1])
                 return local if os.path.exists(local) else ""
         return ""

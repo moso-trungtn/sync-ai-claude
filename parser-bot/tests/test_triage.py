@@ -30,7 +30,7 @@ class Runner:
         self.cfg, self.download_ok, self.report, self.gsutil_listing = cfg, download_ok, report, gsutil_listing
         self.calls = []
     def __call__(self, cmd, cwd=None, timeout=None, **kw):
-        self.calls.append((cmd, cwd))
+        self.calls.append((cmd, cwd, timeout))
         out = ""
         if cmd[0] == "./download-ratesheet.sh" and self.download_ok:
             time.sleep(0.01)
@@ -56,7 +56,9 @@ def test_triage_layout_failure_runs_download_then_tests_and_predicts_tier(tmp_pa
     assert (res.tier, res.streak, res.hint) == ("1", 6, True)
     assert runner.calls[0][0] == ["./download-ratesheet.sh", "PennyMac", "--no-detect", "--no-git", "--no-java"]
     assert runner.calls[0][1] == cfg.packs_loan
+    assert runner.calls[0][2] == cfg.triage_sec
     assert runner.calls[1][0][:2] == ["./parser-fix.sh", "PennyMac"] and "--both" in runner.calls[1][0]
+    assert runner.calls[1][2] == cfg.triage_sec
 
 
 def test_nonqm_channel_adds_flag_and_no_sheet_becomes_not_code(tmp_path):
@@ -79,4 +81,21 @@ def test_prepare_night_runs_once(tmp_path):
     assert cmds == [["git", "-C", cfg.moso_pricing, "pull", "--ff-only"],
                     ["git", "-C", os.path.join(cfg.bot_root, "packs"), "pull", "--ff-only"],
                     ["mvn", "-q", "install", "-DskipTests", "-Pjar-packaging", "-Dgwt.compiler.skip=true"]]
+    assert {c[2] for c in runner.calls} == {cfg.prepare_sec}
     assert st.prepared is True
+
+
+class TimeoutRunner(Runner):
+    """Fake shell that raises TimeoutExpired on gsutil ls."""
+    def __call__(self, cmd, cwd=None, timeout=None, **kw):
+        if cmd[:2] == ["gsutil", "ls"]:
+            raise subprocess.TimeoutExpired(cmd, timeout)
+        return super().__call__(cmd, cwd=cwd, timeout=timeout, **kw)
+
+
+def test_gsutil_timeout_does_not_escape_triage(tmp_path):
+    cfg = make_cfg(tmp_path); runner = TimeoutRunner(cfg, download_ok=False)
+    t = Triager(cfg, runner=runner, now=lambda: NOW)
+    res = t.triage(RateFailure("k", "c", "Provident", "Error while parsing rates for Provident ← login rejected"))
+    assert res.downloaded is False
+    assert res.classification.cls == "LOGIN_DOWNLOAD"
