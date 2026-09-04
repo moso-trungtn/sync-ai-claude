@@ -1,7 +1,7 @@
 space: spaces/AAQASuO_evs
 lf:
   base_url: https://loanfactory.com
-  ns: LOAN_FACTORY
+  ns: '5716104026521600'   # Company.LOAN_FACTORY (numeric company id = namespace); credentials are looked up per namespace
   credentials_file: ~/.config/parser-bot/lf.json      # {"username": "parser-bot@loanfactory.com", "password": "..."}
 jira:
   base_url: https://mosoteam.atlassian.net

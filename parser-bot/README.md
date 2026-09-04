@@ -39,6 +39,16 @@ Spec: `docs/superpowers/specs/2026-09-03-parser-bot-design.md`. Plan: `docs/supe
 - Logs: `logs/bot.log`, `logs/bot.err`. State: `state/<night>.json`.
 - Stop: `launchctl unload ~/Library/LaunchAgents/com.loanfactory.parser-bot.plist`
 
+## LF API facts (learned on the first real run)
+
+- `lf.ns` must be the numeric company id `5716104026521600` (`Company.LOAN_FACTORY`); credentials are looked up per
+  namespace, so `LOAN_FACTORY`/`1` return "Invalid username or password".
+- `lf.json` username is the admin's **personal login email** (the one used on the login page), not the
+  `@loanfactory.com` company email (that credential has no password).
+- The bot reads failures through `lfiq execute/FindOp` with the user's `x-api-key` (fetched automatically via
+  `getCurrentUserAPIKey`). The un-namespaced `/api/entity/v1` rejects LF-namespace tokens ("Invalid secret").
+- 2FA on the web login does not affect the API password grant.
+
 ## Phase A posts through the webhook
 
 `lenderrate-master` is bound to a Workspace add-on (Apps Script), so its Chat app cannot use Cloud Pub/Sub. Until a
