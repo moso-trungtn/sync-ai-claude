@@ -333,7 +333,7 @@ def _jira_creds(cfg: Config, dry_run: bool) -> tuple[str, str]:
 def build_bot(cfg: Config, dry_run: bool) -> Bot:
     creds = json.loads(Path(cfg.lf_credentials_file).read_text(encoding="utf-8"))
     lf = LFClient(cfg.lf_base_url, cfg.lf_ns, creds["username"], creds["password"])
-    chat = ChatClient(cfg.gcp_service_account_file, cfg.space)
+    chat = ChatClient(cfg.gcp_service_account_file, cfg.space, webhook_url=cfg.chat_webhook_url or None)
     email, token = _jira_creds(cfg, dry_run)
     jira = JiraClient(cfg.jira_base_url, email, token, cfg.jira_project, cfg.jira_assignee)
     return Bot(cfg, lf, chat, jira, Triager(cfg), Fixer(cfg), load_index(cfg.lenders_json, cfg.aliases), dry_run=dry_run)

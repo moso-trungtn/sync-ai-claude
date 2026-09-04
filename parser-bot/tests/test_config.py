@@ -24,3 +24,20 @@ def test_load_config_expands_paths_and_applies_defaults(tmp_path):
     assert cfg.listener_idle_sec == 2             # default when schedule.listener_idle_sec is missing
     assert cfg.jira_assignee == "1:2"
     assert os.path.isabs(cfg.report_dir) and cfg.report_dir.endswith("/tmp/pf")
+
+
+def test_chat_webhook_url_defaults_to_empty_and_reads_chat_section(tmp_path):
+    base = textwrap.dedent("""
+        space: spaces/X
+        lf: {base_url: https://lf, ns: LOAN_FACTORY, credentials_file: ~/lf.json}
+        jira: {base_url: https://j, email_env: JE, token_env: JT, project: MOSO, assignee_account_id: "1:2"}
+        gcp: {subscription: projects/p/subscriptions/s, service_account_file: ~/sa.json}
+        paths: {bot_root: /bot, state_dir: /st, cookbook: /cb.md, report_dir: /tmp/pf, lenders_json: /l.json, aliases: /a.yaml, gcs_bucket: b}
+        schedule: {timezone: Asia/Ho_Chi_Minh, poll_start: "19:30", poll_end: "05:30", poll_interval_sec: 60, lookback_hours: 6}
+        timeouts: {triage_sec: 10, fix_sec: 20, prepare_sec: 30}
+    """)
+    f = tmp_path / "c.yaml"
+    f.write_text(base)
+    assert load_config(str(f)).chat_webhook_url == ""
+    f.write_text(base + "chat: {webhook_url: 'https://chat.googleapis.com/v1/spaces/X/messages?key=k&token=t'}\n")
+    assert load_config(str(f)).chat_webhook_url.startswith("https://chat.googleapis.com/v1/spaces/X/")

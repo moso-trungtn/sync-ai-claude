@@ -33,3 +33,7 @@ timeouts:
   triage_sec: 900
   fix_sec: 3600
   prepare_sec: 1500
+chat:
+  # Phase A: post through the Space's incoming webhook (no Chat app needed). Secret — set it only in
+  # ~/.config/parser-bot/config.yaml, never in git. Leave empty to post as the Chat app via sa.json.
+  webhook_url: ""

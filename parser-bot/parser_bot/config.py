@@ -39,6 +39,7 @@ class Config:
     listener_idle_sec: int = 2
     commands_enabled: bool = False
     allowlist: list[str] = field(default_factory=list)
+    chat_webhook_url: str = ""
 
     @property
     def moso_pricing(self) -> str:
@@ -87,4 +88,5 @@ def load_config(path: str) -> Config:
         listener_idle_sec=int(sched.get("listener_idle_sec", 2)),
         commands_enabled=bool(raw.get("commands_enabled", False)),
         allowlist=list(raw.get("allowlist", []) or []),
+        chat_webhook_url=str((raw.get("chat") or {}).get("webhook_url", "") or ""),
     )

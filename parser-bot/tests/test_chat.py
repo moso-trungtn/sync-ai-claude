@@ -39,3 +39,13 @@ def test_bare_post_omits_reply_option():
     url, params, body = s.calls[0]
     assert params is None or params == {}
     assert body == {"text": "plain"}
+
+
+def test_webhook_mode_posts_to_the_webhook_url_without_a_service_account():
+    s = FakeSession()
+    hook = "https://chat.googleapis.com/v1/spaces/S/messages?key=k&token=t"
+    ChatClient("/nonexistent/sa.json", "spaces/S", session=s, webhook_url=hook).post("hi", thread_key="AAALendings-09-03")
+    url, params, body = s.calls[0]
+    assert url == hook
+    assert params == {"messageReplyOption": "REPLY_MESSAGE_FALLBACK_TO_NEW_THREAD"}
+    assert body == {"text": "hi", "thread": {"threadKey": "AAALendings-09-03"}}

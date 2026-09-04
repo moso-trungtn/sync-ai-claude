@@ -39,6 +39,12 @@ Spec: `docs/superpowers/specs/2026-09-03-parser-bot-design.md`. Plan: `docs/supe
 - Logs: `logs/bot.log`, `logs/bot.err`. State: `state/<night>.json`.
 - Stop: `launchctl unload ~/Library/LaunchAgents/com.loanfactory.parser-bot.plist`
 
+## Phase A posts through the webhook
+
+`lenderrate-master` is bound to a Workspace add-on (Apps Script), so its Chat app cannot use Cloud Pub/Sub. Until a
+dedicated GCP project exists for the Chat app (needed only for Phase B commands), the bot posts through the Space's
+incoming webhook: set `chat.webhook_url` in `~/.config/parser-bot/config.yaml`. Threads per lender work the same.
+
 ## Pub/Sub IAM (needs a project Owner)
 
 `trung.thach@` can create Pub/Sub resources but cannot set IAM policy on them. A project Owner
