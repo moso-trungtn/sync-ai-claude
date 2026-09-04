@@ -39,6 +39,21 @@ Spec: `docs/superpowers/specs/2026-09-03-parser-bot-design.md`. Plan: `docs/supe
 - Logs: `logs/bot.log`, `logs/bot.err`. State: `state/<night>.json`.
 - Stop: `launchctl unload ~/Library/LaunchAgents/com.loanfactory.parser-bot.plist`
 
+## Pub/Sub IAM (needs a project Owner)
+
+`trung.thach@` can create Pub/Sub resources but cannot set IAM policy on them. A project Owner
+(`khai@loanfactory.com` or `thanh.t.tran@loanfactory.com`) must run once:
+
+```bash
+gcloud pubsub topics add-iam-policy-binding projects/lenderrate-master/topics/parser-bot-events \
+  --member=serviceAccount:chat-api-push@system.gserviceaccount.com --role=roles/pubsub.publisher
+gcloud pubsub subscriptions add-iam-policy-binding projects/lenderrate-master/subscriptions/parser-bot-sub \
+  --member=serviceAccount:parser-bot@lenderrate-master.iam.gserviceaccount.com --role=roles/pubsub.subscriber
+```
+
+Until then the launchd unit runs with `--no-listener` (Phase A needs no commands). After the grants, drop the
+flag from `launchd/com.loanfactory.parser-bot.plist` and `launchctl unload && launchctl load`.
+
 ## Phase A → B
 
 Phase A: `commands_enabled: false`; the bot only triages. After ~1 week of correct causes, set

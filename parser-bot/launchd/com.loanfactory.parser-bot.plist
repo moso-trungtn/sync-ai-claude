@@ -5,6 +5,7 @@
   <key>ProgramArguments</key><array>
     <string>/Users/trungthach/IdeaProjects/tools/parser-bot/run.sh</string>
     <string>--config</string><string>/Users/trungthach/.config/parser-bot/config.yaml</string>
+    <string>--no-listener</string><!-- Phase A: remove once a project Owner grants the two Pub/Sub IAM bindings (see README) -->
   </array>
   <key>WorkingDirectory</key><string>/Users/trungthach/IdeaProjects/tools/parser-bot</string>
   <key>RunAtLoad</key><true/>
