@@ -31,8 +31,9 @@ class ChatClient:
             body["thread"] = {"name": thread_name}
         elif thread_key:
             body["thread"] = {"threadKey": thread_key}
-        r = self.session.post(f"{API}/{self.space}/messages",
-                              params={"messageReplyOption": "REPLY_MESSAGE_FALLBACK_TO_NEW_THREAD"},
-                              json=body, timeout=30)
+        # Chat rejects messageReplyOption on a message that names no thread (400 "does not specify which
+        # message to reply to"), so only send it when a thread key/name is present.
+        params = {"messageReplyOption": "REPLY_MESSAGE_FALLBACK_TO_NEW_THREAD"} if "thread" in body else None
+        r = self.session.post(f"{API}/{self.space}/messages", params=params, json=body, timeout=30)
         r.raise_for_status()
         return r.json()

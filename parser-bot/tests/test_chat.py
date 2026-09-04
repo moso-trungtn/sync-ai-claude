@@ -31,3 +31,11 @@ def test_post_with_thread_name_replies_in_existing_thread():
     ChatClient("/nonexistent/sa.json", "spaces/S", session=s).post("hi", thread_name="spaces/S/threads/T")
     assert s.calls[0][2] == {"text": "hi", "thread": {"name": "spaces/S/threads/T"}}
     assert CHAT_SCOPE == "https://www.googleapis.com/auth/chat.bot"
+
+
+def test_bare_post_omits_reply_option():
+    s = FakeSession()
+    ChatClient("/nonexistent/sa.json", "spaces/S", session=s).post("plain")
+    url, params, body = s.calls[0]
+    assert params is None or params == {}
+    assert body == {"text": "plain"}
