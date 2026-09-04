@@ -43,3 +43,16 @@ Reconciles moso-pricing's computed adjustment breakdown for one loan scenario ag
 - Calling `RunNonQMPricingOp` on a QM quote — it force-sets `loan_type=Non_QM` and throws on missing `NON_QM_REQUIRED_FIELDS`.
 - Concluding "parser bug" from a local test fixture without re-downloading today's ratesheet — fixtures can be a week+ stale.
 - Missing the LLMA+SRP sum trick and flagging a false mismatch that's actually just a portal display split.
+
+## Learnings from NexBank /l/RsJfe5f981579d5 (2026-09-03)
+- **`/l/<key>` share links need no login**: `curl -sI https://www.loanfactory.com/l/<key>` → the 302 `location` is `/<lo>/quote_result?...` and the query string is the full scenario (enum *names*: `purpose=PM`, `occupancy=Investment`, `income_to_ami=INCOME_120_TO_140_AMI`, `Yes/No` booleans). `EnumType._fromJson` accepts enum names, so paste them into the Quote JSON as strings — no ordinal counting needed.
+- **Restrict to one lender with `"alert_lenders":["<LenderType>"]`** (a list). `quote_lender` and the singular `alert_lender` do NOT filter.
+- **With no logged-in user, `RunPricingOp` collapses output**: `currentUser == null` ⇒ `showTopRateOnly` ⇒ rate window around the anchor + `filterLenders()` keeps ONE row per lender per rate (the cheapest mode — e.g. NexBank Mortgage Connect hid the standard DU rows). To see what the LO sees, run as the LO:
+  ```java
+  Bean lo = new Bundle().readOnly().find(Admin.TYPE).whereEquals(Admin.email, "<lo email from the link's inviter=>").first();
+  ThreadContext.setRequestUser(new AppServer().createSessionUser(lo));   // plain new SessionUser(bean) NPEs on kind()
+  ```
+  Only side effect is a memcache pricing-session entry — safe on PROD.
+- **Cross-check the parsed tables directly** (bypasses display logic): `new Bundle().readOnly().demand(LenderAdjustments.TYPE, "<LenderType>")` then `adj.get(LenderAdjustments.TYPE.field("field_N"))` — values are COST sign (sheet −1.125 ⇒ +1.125 when the parser uses `revertSignal(true)`).
+- **Do NOT reconcile base prices from a raw `find(Rate.TYPE)` query** — those are legacy per-rate entities and returned stale rows; live pricing reads `RateTable` (per lender/zone/program group, see `LenderRateLoader`). Use the `RunPricingOp` rows' `base_price`.
+- **Always read the sheet with openpyxl by cell coordinate** — rate grids may start in column A while adjustment tables start in column B; a collapsed CSV dump shifts columns silently.
