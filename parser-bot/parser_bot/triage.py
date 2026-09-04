@@ -3,13 +3,14 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import subprocess
 import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-from .classify import Classification, classify
+from .classify import LAYOUT, Classification, classify
 from .config import Config
 from .cookbook import parse_cookbook, predict_tier
 from .lf_api import RateFailure
@@ -37,6 +38,43 @@ def channel_of(failure: RateFailure) -> str:
     return "NonQM" if "NonQM" in failure.description else "QM"
 
 
+_SUREFIRE = re.compile(r"^\[ERROR\]\s+\S+\.\w+:\d+\s+»\s+(.+)$", re.M)
+_JAVA_EXC = re.compile(r"^(?:[\w.]+\.)?(\w+(?:Exception|Error)):\s*(.*)$", re.M)
+_ADJ_METHOD = re.compile(r"^\s*Adj:\s+AdjustmentParsersTest#\w+", re.M)
+_RATE_METHOD = re.compile(r"^\s*Rate:\s+RateParserTest#\w+", re.M)
+
+
+def surefire_cause(log_text: str) -> str:
+    """One line naming what broke, from a parser-fix maven log: the surefire summary (`» ...`) or the first Java exception."""
+    text = log_text or ""
+    m = _SUREFIRE.search(text)
+    if m:
+        return m.group(1).strip()
+    m = _JAVA_EXC.search(text)
+    if m:
+        msg = m.group(2).strip()
+        if not msg:
+            rest = text[m.end():].splitlines()
+            msg = next((ln.strip() for ln in rest if ln.strip() and not ln.strip().startswith("at ")), "")
+        return f"{m.group(1)}: {msg}".rstrip(": ")
+    return ""
+
+
+def test_flags(lender_info_output: str) -> str | None:
+    """parser-fix.sh flag for the tests lender-info.sh reports: --both / --adj / --rate, or None when there is no local test."""
+    adj = bool(_ADJ_METHOD.search(lender_info_output or ""))
+    rate = bool(_RATE_METHOD.search(lender_info_output or ""))
+    return "--both" if adj and rate else "--adj" if adj else "--rate" if rate else None
+
+
+@dataclass
+class TestRun:
+    report: str | None
+    report_path: str
+    available: bool      # False when lender-info found no local test for the lender
+    log_cause: str       # surefire/exception line from the maven logs, "" when none
+
+
 class Triager:
     def __init__(self, cfg: Config, runner=subprocess.run, now=None):
         self.cfg = cfg
@@ -49,7 +87,8 @@ class Triager:
     def _run(self, cmd: list[str], cwd: str, timeout: int) -> subprocess.CompletedProcess:
         p = self.runner(cmd, cwd=cwd, timeout=timeout, capture_output=True, text=True)
         if getattr(p, "returncode", 0):
-            log.warning("%s exited %s: %s", cmd[0], p.returncode, (p.stderr or "")[-200:])
+            detail = (p.stderr or "").strip() or (p.stdout or "").strip()
+            log.warning("%s exited %s: %s", cmd[0], p.returncode, detail[-200:])
         return p
 
     @staticmethod
@@ -120,13 +159,20 @@ class Triager:
         return ""
 
     # ---- tests + report ------------------------------------------------------------------------
-    def _run_tests(self, lender: str, sheet: str) -> tuple[str | None, str]:
+    def _run_tests(self, lender: str, sheet: str) -> TestRun:
         t0 = time.time()
         try:
-            self._run(["./parser-fix.sh", lender, "--ratesheet", sheet, "--both"], cwd=self.cfg.packs_loan,
+            info = self._run(["./lender-info.sh", lender], cwd=self.cfg.packs_loan, timeout=self.cfg.triage_sec)
+        except subprocess.TimeoutExpired:
+            return TestRun(None, "", True, "")
+        flags = test_flags(getattr(info, "stdout", "") or "")
+        if flags is None:
+            return TestRun(None, "", False, "")
+        try:
+            self._run(["./parser-fix.sh", lender, "--ratesheet", sheet, flags], cwd=self.cfg.packs_loan,
                       timeout=self.cfg.triage_sec)
         except subprocess.TimeoutExpired:
-            return None, ""
+            return TestRun(None, "", True, "")
         expected = os.path.join(self.cfg.report_dir, lender.lower(), "report.txt")
         if os.path.exists(expected) and os.path.getmtime(expected) >= t0:
             candidates = [expected]     # a report older than this run is a leftover, never today's answer
@@ -134,18 +180,30 @@ class Triager:
             candidates = [p for p in self._new_files(self.cfg.report_dir, t0) if p.endswith("report.txt")]
         else:
             candidates = []
-        if not candidates:
-            return None, ""
-        return Path(candidates[0]).read_text(encoding="utf-8", errors="replace"), candidates[0]
+        report = Path(candidates[0]).read_text(encoding="utf-8", errors="replace") if candidates else None
+        return TestRun(report, candidates[0] if candidates else "", True, self._log_cause(lender, t0))
+
+    def _log_cause(self, lender: str, t0: float) -> str:
+        for name in ("adj-test.log", "rate-test.log"):
+            path = os.path.join(self.cfg.report_dir, lender.lower(), name)
+            if os.path.exists(path) and os.path.getmtime(path) >= t0:
+                cause = surefire_cause(Path(path).read_text(encoding="utf-8", errors="replace"))
+                if cause:
+                    return cause
+        return ""
+
 
     # ---- entry point ---------------------------------------------------------------------------
     def triage(self, failure: RateFailure) -> TriageResult:
         channel = self.channel_of(failure)
         sheet = self._download(failure.lender, channel)
-        report, report_path = (None, "")
+        run = TestRun(None, "", True, "")
         if sheet:
-            report, report_path = self._run_tests(failure.lender, sheet)
-        c = classify(failure.description, bool(sheet), report)
+            run = self._run_tests(failure.lender, sheet)
+        report, report_path = run.report, run.report_path
+        c = classify(failure.description, bool(sheet), report, test_available=run.available)
+        if c.cls == LAYOUT and c.error_type == "UNKNOWN" and run.log_cause:
+            c = Classification(c.cls, c.error_type, run.log_cause, c.adj_status, c.rate_status)
         entry = None
         if os.path.exists(self.cfg.cookbook):
             entry = parse_cookbook(Path(self.cfg.cookbook).read_text(encoding="utf-8")).get(failure.lender)

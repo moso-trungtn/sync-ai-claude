@@ -29,3 +29,9 @@ def test_failed_report_without_typed_lines_falls_back_to_unknown():
     report = "RESULTS\n-------\nAdj:  FAILED\nRate: FAILED\n\njava.lang.IllegalStateException: boom\n"
     c = classify("x", True, report)
     assert c.cls == LAYOUT and c.error_type == "UNKNOWN" and "IllegalStateException" in c.cause
+
+
+def test_no_local_test_is_its_own_class():
+    from parser_bot.classify import NO_TEST
+    c = classify("x", True, None, test_available=False)
+    assert c.cls == NO_TEST and c.error_type == "" and "No local parser test" in c.cause

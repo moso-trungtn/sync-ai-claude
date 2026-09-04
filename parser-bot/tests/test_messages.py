@@ -53,3 +53,10 @@ def test_status_text_lists_lenders(tmp_path):
     st.lenders["Provident|QM"] = LenderState("Provident", "QM", NOT_CODE, "t", cls="LOGIN_DOWNLOAD")
     s = status_text(st, {"AAALendings": "AAA Lendings", "Provident": "Provident Funding"})
     assert "AAA Lendings (QM): TRIAGED" in s and "Provident Funding (QM): NOT_CODE" in s
+
+
+def test_triage_text_for_no_test_explains_and_offers_no_fix():
+    from parser_bot.classify import NO_TEST
+    res = TriageResult("KindLendingCorrespondent", "QM", True, "/tmp/k.xlsx", Classification(NO_TEST, "", "No local parser test for this lender"), "", 0, False, "")
+    t = triage_text(res, "Kind Lending Correspondent", "22:37 ICT", "")
+    assert "No local parser test" in t and "fix KindLendingCorrespondent" not in t

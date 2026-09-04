@@ -24,10 +24,19 @@ def make_cfg(tmp_path):
                   lookback_hours=6, triage_sec=5, fix_sec=5, prepare_sec=5)
 
 
+LENDER_INFO_BOTH = "── Test Methods ──\n\n  Adj:  AdjustmentParsersTest#testUnionHome\n  Rate: RateParserTest#testUnionHome\n"
+LENDER_INFO_ADJ_ONLY = "── Test Methods ──\n\n  Adj:  AdjustmentParsersTest#testBrokersFirstFunding\n  Rate: (no matching test method found)\n"
+LENDER_INFO_NONE = "── Ratesheet Constants (RatesheetFiles.java) ──\n\n  BFF_20260501 = /ratesheets/x.pdf\n"
+EMPTY_ERRORS_REPORT = "PARSER-FIX REPORT\n=================\nLender:    Paramount\n\nRESULTS\n-------\nAdj:  FAILED\nRate: PASSED\n\nADJ ERRORS\n----------\n"
+SUREFIRE_LOG = "[INFO] Running com.mvu.loan.AdjustmentParsersTest\n[ERROR] testParamount  Time elapsed: 0.399 s  <<< ERROR!\njava.lang.IllegalStateException: \nTable: Ruby Jumbo A1 Missing header\n\tat com.x.Y.z(Y.java:1)\n[ERROR] Errors: \n[ERROR]   AdjustmentParsersTest.testParamount:709 » IllegalState Table: Ruby Jumbo A1 Mi...\n"
+
+
 class Runner:
     """Fake shell: records commands, simulates download-ratesheet.sh and parser-fix.sh side effects."""
-    def __init__(self, cfg, download_ok=True, report=LAYOUT_REPORT, gsutil_listing=""):
+    def __init__(self, cfg, download_ok=True, report=LAYOUT_REPORT, gsutil_listing="", lender_info=None, adj_log=""):
         self.cfg, self.download_ok, self.report, self.gsutil_listing = cfg, download_ok, report, gsutil_listing
+        self.lender_info = LENDER_INFO_BOTH if lender_info is None else lender_info
+        self.adj_log = adj_log
         self.calls = []
     def __call__(self, cmd, cwd=None, timeout=None, **kw):
         self.calls.append((cmd, cwd, timeout))
@@ -38,9 +47,13 @@ class Runner:
             f.write_text("x"); out = "  → Downloading... OK (10 bytes)"
         if cmd[0] == "gsutil" and cmd[1] == "ls":
             out = self.gsutil_listing
+        if cmd[0] == "./lender-info.sh":
+            out = self.lender_info
         if cmd[0] == "./parser-fix.sh":
             d = Path(self.cfg.report_dir) / cmd[1].lower(); d.mkdir(parents=True, exist_ok=True)
             (d / "report.txt").write_text(self.report)
+            if self.adj_log:
+                (d / "adj-test.log").write_text(self.adj_log)
         return subprocess.CompletedProcess(cmd, 0, stdout=out, stderr="")
 
 
@@ -57,8 +70,9 @@ def test_triage_layout_failure_runs_download_then_tests_and_predicts_tier(tmp_pa
     assert runner.calls[0][0] == ["./download-ratesheet.sh", "UnionHome", "--no-detect", "--no-git", "--no-java"]
     assert runner.calls[0][1] == cfg.packs_loan
     assert runner.calls[0][2] == cfg.triage_sec
-    assert runner.calls[1][0][:2] == ["./parser-fix.sh", "UnionHome"] and "--both" in runner.calls[1][0]
-    assert runner.calls[1][2] == cfg.triage_sec
+    assert runner.calls[1][0] == ["./lender-info.sh", "UnionHome"]
+    assert runner.calls[2][0][:2] == ["./parser-fix.sh", "UnionHome"] and "--both" in runner.calls[2][0]
+    assert runner.calls[2][2] == cfg.triage_sec
 
 
 def test_nonqm_channel_adds_flag_and_no_sheet_becomes_not_code(tmp_path):
@@ -143,3 +157,32 @@ def test_non_zero_shell_exit_is_logged(tmp_path, caplog):
         t.triage(RateFailure("k", "c", "Provident", "Error while parsing rates for Provident ← login rejected"))
     msgs = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
     assert any("download-ratesheet.sh" in m and "exited 1" in m and "portal login failed" in m for m in msgs)
+
+
+def test_adj_only_lender_runs_parser_fix_with_adj_flag(tmp_path):
+    cfg = make_cfg(tmp_path); runner = Runner(cfg, lender_info=LENDER_INFO_ADJ_ONLY)
+    Triager(cfg, runner=runner, now=lambda: NOW).triage(RateFailure("k", "c", "BrokersFirstFunding", "Can not parse BFF"))
+    pf = next(c[0] for c in runner.calls if c[0][0] == "./parser-fix.sh")
+    assert "--adj" in pf and "--both" not in pf
+
+
+def test_lender_without_local_tests_is_classified_no_test(tmp_path):
+    cfg = make_cfg(tmp_path); runner = Runner(cfg, lender_info=LENDER_INFO_NONE)
+    res = Triager(cfg, runner=runner, now=lambda: NOW).triage(RateFailure("k", "c", "KindLendingCorrespondent", "Can not parse KLC"))
+    assert res.downloaded is True and res.classification.cls == "NO_TEST" and res.tier == ""
+    assert not any(c[0][0] == "./parser-fix.sh" for c in runner.calls)
+
+
+def test_unknown_failure_pulls_the_surefire_line_from_the_maven_log(tmp_path):
+    cfg = make_cfg(tmp_path); runner = Runner(cfg, report=EMPTY_ERRORS_REPORT, adj_log=SUREFIRE_LOG)
+    res = Triager(cfg, runner=runner, now=lambda: NOW).triage(RateFailure("k", "c", "Paramount", "Can not parseParamountAdjustmentXLSParser"))
+    assert res.classification.cls == "LAYOUT" and res.classification.error_type == "UNKNOWN"
+    assert res.classification.cause == "IllegalState Table: Ruby Jumbo A1 Mi..."
+
+
+def test_surefire_cause_prefers_summary_then_exception_line():
+    from parser_bot.triage import surefire_cause
+    assert surefire_cause(SUREFIRE_LOG) == "IllegalState Table: Ruby Jumbo A1 Mi..."
+    assert surefire_cause("x\njava.lang.IllegalStateException: \nTable: Ruby Jumbo\n\tat a.b(C.java:1)\n") == "IllegalStateException: Table: Ruby Jumbo"
+    assert surefire_cause("java.lang.NullPointerException: boom\n") == "NullPointerException: boom"
+    assert surefire_cause("nothing here") == ""

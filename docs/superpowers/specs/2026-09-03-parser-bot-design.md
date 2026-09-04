@@ -84,6 +84,7 @@ Add `--auto --lender <L> --key <KEY>` mode; interactive mode unchanged.
 | `EMAIL_MISSING` | download-ratesheet.sh finds no new file and the reason does not match the login/download regex — including `Could not handle email` and any other no-sheet CRON_JOB build | "No ratesheet arrived / email unreadable." No fix offered. |
 | `LAYOUT` | new sheet downloaded and `parser-fix.sh` reports VALUE_MISMATCH / CRAWL_MISMATCH / KEYWORD_MISSING / STRUCTURE_CHANGE / RATE_COUNT / NULL_POINTER / NEW_ADJ_DETECTED | Cause line from report + cookbook tier prediction (0/1/2, streak). Offers `fix`. |
 | `TESTS_GREEN` | new sheet parses locally with no error | "Local tests pass on today's sheet — likely transient/builder issue. Retry the build instead." |
+| `NO_TEST` | new sheet downloaded but `lender-info.sh` reports no local AdjustmentParsersTest/RateParserTest for the lender (parser-fix.sh would exit before testing) | "No local parser test for this lender; check the builder log." No fix offered. When only one test exists the bot runs parser-fix with `--adj` / `--rate` instead of `--both`. When the report's error section is empty (`Adj: FAILED` with no typed lines) the cause is the surefire summary line (`» ...`) or first Java exception from `adj-test.log`/`rate-test.log`. |
 
 ## 6. Messages
 

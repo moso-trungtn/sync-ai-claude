@@ -1,7 +1,7 @@
 """All Chat text lives here so wording can change without touching logic. Google Chat: *bold*, plain newlines."""
 from __future__ import annotations
 
-from .classify import LAYOUT, LOGIN_DOWNLOAD, EMAIL_MISSING, TESTS_GREEN
+from .classify import LAYOUT, LOGIN_DOWNLOAD, EMAIL_MISSING, TESTS_GREEN, NO_TEST
 from .state import NightState
 from .triage import TriageResult
 
@@ -26,6 +26,9 @@ def triage_text(res: TriageResult, label: str, when: str, sheet_uri: str) -> str
         lines.append("• No ratesheet arrived / email unreadable. Nothing to fix in the parser.")
     elif c.cls == TESTS_GREEN:
         lines.append("• Local tests pass on today's sheet — likely a transient/builder issue. Retry the build instead.")
+    elif c.cls == NO_TEST:
+        lines.append(f"• {c.cause}")
+        lines.append("• Nothing the bot can test locally — check the builder log or Rate history.")
     return "\n".join(lines)
 
 

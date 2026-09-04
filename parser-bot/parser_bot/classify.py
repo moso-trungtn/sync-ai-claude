@@ -8,6 +8,7 @@ LOGIN_DOWNLOAD = "LOGIN_DOWNLOAD"
 EMAIL_MISSING = "EMAIL_MISSING"
 LAYOUT = "LAYOUT"
 TESTS_GREEN = "TESTS_GREEN"
+NO_TEST = "NO_TEST"
 
 ERROR_PRIORITY = ["NULL_POINTER", "STRUCTURE_CHANGE", "KEYWORD_MISSING", "CRAWL_MISMATCH",
                   "RATE_COUNT", "NEW_ADJ_DETECTED", "VALUE_MISMATCH"]
@@ -28,7 +29,7 @@ class Classification:
     rate_status: str = ""
 
 
-def classify(reason: str, downloaded: bool, report: str | None) -> Classification:
+def classify(reason: str, downloaded: bool, report: str | None, test_available: bool = True) -> Classification:
     reason = reason or ""
     if not downloaded:
         if _LOGIN.search(reason):
@@ -36,6 +37,8 @@ def classify(reason: str, downloaded: bool, report: str | None) -> Classificatio
         if _EMAIL.search(reason):
             return Classification(EMAIL_MISSING, "", reason.strip())
         return Classification(EMAIL_MISSING, "", f"No ratesheet found for today; builder said: {reason.strip()}")
+    if not test_available:
+        return Classification(NO_TEST, "", "No local parser test for this lender (lender-info found none); check the builder log")
     text = report or ""
     adj = (_ADJ.search(text) or [None, ""])[1]
     rate = (_RATE.search(text) or [None, ""])[1]
