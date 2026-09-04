@@ -40,31 +40,52 @@ def channel_of(failure: RateFailure) -> str:
 
 _SUREFIRE = re.compile(r"^\[ERROR\]\s+\S+\.\w+:\d+\s+»\s+(.+)$", re.M)
 _JAVA_EXC = re.compile(r"^(?:[\w.]+\.)?(\w+(?:Exception|Error)):\s*(.*)$", re.M)
-_ADJ_METHOD = re.compile(r"^\s*Adj:\s+AdjustmentParsersTest#\w+", re.M)
-_RATE_METHOD = re.compile(r"^\s*Rate:\s+RateParserTest#\w+", re.M)
+_ADJ_METHOD = re.compile(r"^\s*Adj:\s+AdjustmentParsersTest#(\w+)", re.M)
+_RATE_METHOD = re.compile(r"^\s*Rate:\s+RateParserTest#(\w+)", re.M)
 
 
 def surefire_cause(log_text: str) -> str:
     """One line naming what broke, from a parser-fix maven log: the surefire summary (`» ...`) or the first Java exception."""
     text = log_text or ""
+    summary = ""
     m = _SUREFIRE.search(text)
     if m:
-        return m.group(1).strip()
+        summary = m.group(1).strip()
+        if not summary.endswith("..."):
+            return summary
     m = _JAVA_EXC.search(text)
     if m:
         msg = m.group(2).strip()
         if not msg:
             rest = text[m.end():].splitlines()
             msg = next((ln.strip() for ln in rest if ln.strip() and not ln.strip().startswith("at ")), "")
-        return f"{m.group(1)}: {msg}".rstrip(": ")
-    return ""
+        full = f"{m.group(1)}: {msg}".rstrip(": ")
+        return full if msg else (summary or full)
+    return summary
 
 
-def test_flags(lender_info_output: str) -> str | None:
-    """parser-fix.sh flag for the tests lender-info.sh reports: --both / --adj / --rate, or None when there is no local test."""
-    adj = bool(_ADJ_METHOD.search(lender_info_output or ""))
-    rate = bool(_RATE_METHOD.search(lender_info_output or ""))
-    return "--both" if adj and rate else "--adj" if adj else "--rate" if rate else None
+def _pick(methods: list[str], channel: str) -> str:
+    """The test method matching the channel: NonQM wants a name containing 'NonQM', QM wants one without."""
+    wanted = [m for m in methods if ("NonQM" in m) == (channel == "NonQM")]
+    return (wanted or methods)[0]
+
+
+def test_args(lender_info_output: str, channel: str) -> list[str] | None:
+    """parser-fix.sh arguments for the tests lender-info.sh reports, or None when the lender has no local test.
+
+    parser-fix.sh dies silently (set -e + pipefail on a non-matching grep) when a lender lacks one of the two
+    tests, so whenever we know the method we pass --test-method explicitly, chosen by channel.
+    """
+    adj = _ADJ_METHOD.findall(lender_info_output or "")
+    rate = _RATE_METHOD.findall(lender_info_output or "")
+    if adj and rate:
+        a, r = _pick(adj, channel), _pick(rate, channel)
+        return ["--both", "--test-method", a] if a == r else ["--both"]
+    if adj:
+        return ["--adj", "--test-method", _pick(adj, channel)]
+    if rate:
+        return ["--rate", "--test-method", _pick(rate, channel)]
+    return None
 
 
 @dataclass
@@ -159,17 +180,17 @@ class Triager:
         return ""
 
     # ---- tests + report ------------------------------------------------------------------------
-    def _run_tests(self, lender: str, sheet: str) -> TestRun:
+    def _run_tests(self, lender: str, channel: str, sheet: str) -> TestRun:
         t0 = time.time()
         try:
             info = self._run(["./lender-info.sh", lender], cwd=self.cfg.packs_loan, timeout=self.cfg.triage_sec)
         except subprocess.TimeoutExpired:
             return TestRun(None, "", True, "")
-        flags = test_flags(getattr(info, "stdout", "") or "")
-        if flags is None:
+        args = test_args(getattr(info, "stdout", "") or "", channel)
+        if args is None:
             return TestRun(None, "", False, "")
         try:
-            self._run(["./parser-fix.sh", lender, "--ratesheet", sheet, flags], cwd=self.cfg.packs_loan,
+            self._run(["./parser-fix.sh", lender, "--ratesheet", sheet, *args], cwd=self.cfg.packs_loan,
                       timeout=self.cfg.triage_sec)
         except subprocess.TimeoutExpired:
             return TestRun(None, "", True, "")
@@ -199,7 +220,7 @@ class Triager:
         sheet = self._download(failure.lender, channel)
         run = TestRun(None, "", True, "")
         if sheet:
-            run = self._run_tests(failure.lender, sheet)
+            run = self._run_tests(failure.lender, channel, sheet)
         report, report_path = run.report, run.report_path
         c = classify(failure.description, bool(sheet), report, test_available=run.available)
         if c.cls == LAYOUT and c.error_type == "UNKNOWN" and run.log_cause:

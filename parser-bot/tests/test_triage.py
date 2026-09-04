@@ -163,7 +163,26 @@ def test_adj_only_lender_runs_parser_fix_with_adj_flag(tmp_path):
     cfg = make_cfg(tmp_path); runner = Runner(cfg, lender_info=LENDER_INFO_ADJ_ONLY)
     Triager(cfg, runner=runner, now=lambda: NOW).triage(RateFailure("k", "c", "BrokersFirstFunding", "Can not parse BFF"))
     pf = next(c[0] for c in runner.calls if c[0][0] == "./parser-fix.sh")
-    assert "--adj" in pf and "--both" not in pf
+    assert pf[4:] == ["--adj", "--test-method", "testBrokersFirstFunding"] and "--both" not in pf
+
+
+def test_adj_only_lender_picks_the_channel_variant_of_the_test_method(tmp_path):
+    info = "  Adj:  AdjustmentParsersTest#testBrokersFirstFundingNonQM\n  Adj:  AdjustmentParsersTest#testBrokersFirstFunding\n  Rate: (no matching test method found)\n"
+    cfg = make_cfg(tmp_path); runner = Runner(cfg, lender_info=info)
+    Triager(cfg, runner=runner, now=lambda: NOW).triage(RateFailure("k", "c", "BrokersFirstFunding", "Can not parse BrokersFirstFundingNonQM adjustments"))
+    pf = next(c[0] for c in runner.calls if c[0][0] == "./parser-fix.sh")
+    assert pf[4:] == ["--adj", "--test-method", "testBrokersFirstFundingNonQM"]
+
+
+def test_test_args_pure_cases():
+    from parser_bot.triage import test_args
+    both = "  Adj:  AdjustmentParsersTest#testUnionHome\n  Rate: RateParserTest#testUnionHome\n"
+    assert test_args(both, "QM") == ["--both", "--test-method", "testUnionHome"]
+    differing = "  Adj:  AdjustmentParsersTest#testFoo\n  Rate: RateParserTest#testFooRates\n"
+    assert test_args(differing, "QM") == ["--both"]
+    rate_only = "  Adj:  (no matching test method found)\n  Rate: RateParserTest#testBar\n"
+    assert test_args(rate_only, "QM") == ["--rate", "--test-method", "testBar"]
+    assert test_args("── Ratesheet Constants ──\n", "QM") is None
 
 
 def test_lender_without_local_tests_is_classified_no_test(tmp_path):
@@ -177,12 +196,13 @@ def test_unknown_failure_pulls_the_surefire_line_from_the_maven_log(tmp_path):
     cfg = make_cfg(tmp_path); runner = Runner(cfg, report=EMPTY_ERRORS_REPORT, adj_log=SUREFIRE_LOG)
     res = Triager(cfg, runner=runner, now=lambda: NOW).triage(RateFailure("k", "c", "Paramount", "Can not parseParamountAdjustmentXLSParser"))
     assert res.classification.cls == "LAYOUT" and res.classification.error_type == "UNKNOWN"
-    assert res.classification.cause == "IllegalState Table: Ruby Jumbo A1 Mi..."
+    assert res.classification.cause == "IllegalStateException: Table: Ruby Jumbo A1 Missing header"
 
 
 def test_surefire_cause_prefers_summary_then_exception_line():
     from parser_bot.triage import surefire_cause
-    assert surefire_cause(SUREFIRE_LOG) == "IllegalState Table: Ruby Jumbo A1 Mi..."
+    assert surefire_cause(SUREFIRE_LOG) == "IllegalStateException: Table: Ruby Jumbo A1 Missing header"   # summary truncated → full exception
+    assert surefire_cause("[ERROR]   T.testX:1 » IllegalState short and complete\n") == "IllegalState short and complete"
     assert surefire_cause("x\njava.lang.IllegalStateException: \nTable: Ruby Jumbo\n\tat a.b(C.java:1)\n") == "IllegalStateException: Table: Ruby Jumbo"
     assert surefire_cause("java.lang.NullPointerException: boom\n") == "NullPointerException: boom"
     assert surefire_cause("nothing here") == ""
