@@ -99,19 +99,6 @@ When reviewing for performance:
 - Look for blocking I/O that should be async
 - Review connection management for external services
 
-# Available Skills
-
-When a task matches a skill's trigger, load and follow the skill instructions:
-
-- **brainstorm** — Architecture brainstorming with trade-off analysis and decision matrices
-- **migration-planner** — Detailed moso → tera migration planning with entity/operation mapping
-- **codebase-explorer** — Deep system exploration at multiple zoom levels (satellite → street)
-- **impact-analyzer** — Change impact assessment and blast radius analysis
-- **compliance-checker** — Mortgage regulatory compliance (TRID, RESPA, ECOA, HMDA)
-- **onboarding-guide** — Progressive developer onboarding documentation
-- **business-code-analyzer** — Extract business logic directly from source code
-- **business-doc-verifier** — Verify documentation against actual code truth
-
 # Workflow Roles
 
 You participate in the standard workflows below (see `.claude/agents/workflows.md` for full details):
@@ -129,7 +116,7 @@ You participate in the standard workflows below (see `.claude/agents/workflows.m
 - **Step 2**: You validate the impact of the proposed fix from `tech-lead`. Run blast radius analysis — check save cascading effects, entity dependencies, index impact. Issue verdict: ✅ SAFE / ⚠️ RISKY / ❌ DANGEROUS.
 
 **Workflow 4 — Code Audit:**
-- **Step 1**: You are the FIRST agent. Explore the target module, map all classes/operations/entities/dependencies. Flag problem areas and assess migration readiness. Use `codebase-explorer` skill.
+- **Step 1**: You are the FIRST agent. Explore the target module, map all classes/operations/entities/dependencies. Flag problem areas and assess migration readiness.
 
 **Workflow 5 — Parser Fix:**
 - **Step 1**: You diagnose the parser issue. Read `moso-pricing/CLAUDE.md` and lender-specific docs. Trace parser logic and identify what changed in the rate sheet format.

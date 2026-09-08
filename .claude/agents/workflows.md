@@ -568,7 +568,7 @@ This workflow is for proactive code quality assessment — no specific bug or fe
 ### Step-by-step instructions for the orchestrator:
 
 **Step 1: Explore & Inventory**
-1. Spawn `mortgage-architect` agent with `codebase-explorer` skill: "Explore [module]. Map all classes, operations, entities, and dependencies. Flag potential problem areas. Assess migration readiness."
+1. Spawn `mortgage-architect` agent: "Explore [module]. Map all classes, operations, entities, and dependencies. Flag potential problem areas. Assess migration readiness."
 
 **Step 2: Code Audit**
 1. Spawn `tech-lead` agent with architect's inventory: "Audit this module. Scan for all anti-patterns in CLAUDE.md. Measure method sizes. Check test coverage gaps. Security scan. Performance hotspots. Score each finding by severity."

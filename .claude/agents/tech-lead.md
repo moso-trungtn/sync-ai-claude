@@ -238,16 +238,6 @@ packs/loan/src/.../condition_builder/              — Loan eligibility
 packs/loan/src/.../calculator/                     — Loan calculations
 ```
 
-# Available Skills
-
-When a task matches a skill's trigger, load and follow the skill instructions:
-
-- **brainstorm** — Compare approaches with trade-off analysis when design decisions arise
-- **business-code-analyzer** — Understand business logic context during review
-- **codebase-explorer** — Trace dependencies when assessing impact of changes
-- **impact-analyzer** — Blast radius analysis before approving risky changes
-- **compliance-checker** — Verify compliance correctness during review
-
 # Workflow Roles
 
 You participate in two standard workflows (see `.claude/agents/workflows.md` for full details):

@@ -258,18 +258,6 @@ moso-docs/docs/core/ENTITY_GUIDE.md                  — Entity patterns
 moso-docs/docs/core/INFRASTRUCTURE_INDEX.md          — Class lookup + feature doc index
 ```
 
-# Available Skills
-
-When a task matches a skill's trigger, load and follow the skill instructions:
-
-- **brainstorm** — Compare approaches with trade-off analysis, decision matrices, and Java analogies
-- **business-code-analyzer** — Extract business logic directly from source code
-- **business-doc-verifier** — Verify documentation against actual code truth
-- **compliance-checker** — Mortgage regulatory compliance (TRID, RESPA, ECOA, HMDA)
-- **codebase-explorer** — Deep system exploration for understanding existing workflows
-- **migration-planner** — Gap analysis and migration planning (moso → tera)
-- **impact-analyzer** — Business impact assessment of proposed changes
-
 # Workflow Roles
 
 You participate in two standard workflows (see `.claude/agents/workflows.md` for full details):

@@ -18,15 +18,7 @@ and skills are `@Lazy @Bean` (loaded only when triggered by context).
 │   └── scan-project.sh             ← Codebase scan script (builds index)
 ├── index/                           ← Per-machine index data (gitignored)
 └── skills/
-    ├── codebase-indexer/            ← Infrastructure index lifecycle management
-    ├── brainstorm/                  ← Architecture brainstorming & trade-offs
-    ├── migration-planner/           ← moso → tera migration planning
-    ├── codebase-explorer/           ← Deep system exploration & diagrams
-    ├── impact-analyzer/             ← Change impact / blast radius analysis
-    ├── compliance-checker/          ← Mortgage regulatory compliance (TRID/RESPA/ECOA)
-    ├── onboarding-guide/            ← Developer onboarding documentation
-    ├── business-code-analyzer/      ← Extract business logic from source code
-    └── business-doc-verifier/       ← Verify docs against code truth
+    └── codebase-indexer/            ← Infrastructure index lifecycle management
 ```
 
 ## Available Agents
@@ -240,81 +232,6 @@ Build and maintain the infrastructure index for fast O(1) class/file lookup. Eli
 - `.claude/index/project_stats.md` — File counts per module (gitignored, per-machine)
 
 **Triggers:** "/index", "rebuild index", "refresh index", "scan project"
-
-### `brainstorm`
-Architecture brainstorming and trade-off analysis. Generates:
-- Multiple distinct approaches with Java analogies
-- Decision matrix with weighted scoring
-- Stress-testing of the winning option
-- Mermaid diagrams for visual comparison
-
-**Triggers:** "brainstorm", "pros and cons", "should we use X or Y", "what are our options"
-
-### `migration-planner`
-Detailed planning for moso → tera migration. Generates:
-- Module inventory with business logic extraction
-- Entity/operation/event listener mapping (moso pattern → tera pattern)
-- Data migration strategy (including dual-write approach)
-- Phased migration plan with effort estimates
-- Dependency graph and risk register
-
-**Triggers:** "plan migration", "migrate module X", "moso to tera", "convert to Spring Boot"
-
-### `codebase-explorer`
-Deep system exploration at multiple zoom levels:
-- **Satellite View:** Full system module map and dependencies
-- **City View:** Single module deep dive (entities, operations, flows)
-- **Street View:** Single entity tracing (inheritance, fields, lifecycle)
-- **Follow That Car:** End-to-end flow tracing ("what happens when X")
-- **Traffic Map:** Dependency graphing and hotspot detection
-
-**Triggers:** "explore codebase", "map architecture", "how does X connect to Y", "show me the big picture"
-
-### `impact-analyzer`
-Change impact assessment before making modifications:
-- Direct impact (first-order references)
-- Indirect impact (event cascades, query dependencies, UI bindings)
-- Risk scoring per component (LOW → CRITICAL)
-- Pre-change checklist
-
-**Triggers:** "impact analysis", "blast radius", "what depends on X", "is it safe to change Y"
-
-### `compliance-checker`
-Mortgage regulatory compliance verification:
-- TRID (fee tolerance, disclosure timing)
-- RESPA (settlement procedures)
-- ECOA (fair lending, adverse action)
-- HMDA (data reporting)
-
-**Triggers:** "compliance check", "TRID", "RESPA", "is this compliant", "fee tolerance"
-
-### `onboarding-guide`
-Progressive developer onboarding documentation:
-- Level 1: Big picture (Day 1)
-- Level 2: Core concepts with Spring Boot comparisons (Day 1-2)
-- Level 3: First task walkthrough (Day 2-3)
-- Level 4: Common patterns (Week 1)
-- Level 5: Module-specific deep dive (Week 2+)
-
-**Triggers:** "onboard new developer", "getting started guide", "explain to someone new"
-
-### `business-code-analyzer`
-Extract business logic directly from source code:
-- Entity hierarchy discovery
-- Operation and event listener inventory
-- Business rule extraction with conditions and actions
-- Data flow mapping
-
-**Triggers:** "analyze business logic", "what does this module do", "extract business rules"
-
-### `business-doc-verifier`
-Verify documentation against actual code:
-- Extract verifiable claims from docs
-- Cross-check against code (CONFIRMED / CONFLICT / GAP / STALE)
-- Per-document health score
-- Priority fix recommendations
-
-**Triggers:** "verify docs", "audit documentation", "are docs up to date"
 
 ## Also Available: Engineering Plugin Skills
 

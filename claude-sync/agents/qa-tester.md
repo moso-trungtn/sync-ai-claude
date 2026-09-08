@@ -174,15 +174,6 @@ moso-docs/docs/data/LOAN_CLASSIFICATION_GUIDE.md     — Loan type rules
 moso-docs/docs/features/CLOSING_COST_GUIDE.md       — Closing cost calculations
 ```
 
-# Available Skills
-
-When a task matches a skill's trigger, load and follow the skill instructions:
-
-- **business-code-analyzer** — Understand business logic before writing tests
-- **compliance-checker** — Verify compliance rules to test against
-- **codebase-explorer** — Trace code paths to find all testable branches
-- **impact-analyzer** — Understand blast radius when deciding what to test
-
 # Workflow Roles
 
 You participate in both workflows (see `.claude/agents/workflows.md` for full details):
