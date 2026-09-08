@@ -1,15 +1,22 @@
 ---
 name: test-task
-description: General-purpose Playwright UI testing for MOSO. Fetches Jira ticket, generates test cases using BA/architect agents, walks through them step-by-step in the browser. Usage: /test-task [MOSO-XXXXX]
+description: Use when a MOSO Jira task needs verification on staging — UI / form / workflow tickets, and pricing engine, parser or lender tickets (rate, price or adjustment not matching the lender; a program wrongly eligible or ineligible). Usage: /test-task [MOSO-XXXXX]
 argument-hint: "[MOSO-XXXXX] (optional Jira key, will prompt if omitted)"
-allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Agent, mcp__claude_ai_Atlassian__getJiraIssue, mcp__plugin_playwright_playwright__browser_navigate, mcp__plugin_playwright_playwright__browser_snapshot, mcp__plugin_playwright_playwright__browser_click, mcp__plugin_playwright_playwright__browser_fill_form, mcp__plugin_playwright_playwright__browser_wait_for, mcp__plugin_playwright_playwright__browser_handle_dialog, mcp__plugin_playwright_playwright__browser_select_option, mcp__plugin_playwright_playwright__browser_type, mcp__plugin_playwright_playwright__browser_press_key, mcp__plugin_playwright_playwright__browser_tabs, mcp__plugin_playwright_playwright__browser_hover
+allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Agent, mcp__claude_ai_Atlassian__getJiraIssue, mcp__plugin_playwright_playwright__browser_navigate, mcp__plugin_playwright_playwright__browser_snapshot, mcp__plugin_playwright_playwright__browser_click, mcp__plugin_playwright_playwright__browser_fill_form, mcp__plugin_playwright_playwright__browser_wait_for, mcp__plugin_playwright_playwright__browser_handle_dialog, mcp__plugin_playwright_playwright__browser_select_option, mcp__plugin_playwright_playwright__browser_type, mcp__plugin_playwright_playwright__browser_press_key, mcp__plugin_playwright_playwright__browser_tabs, mcp__plugin_playwright_playwright__browser_hover, mcp__plugin_playwright_playwright__browser_evaluate, mcp__plugin_playwright_playwright__browser_network_requests, mcp__plugin_playwright_playwright__browser_network_request, mcp__plugin_playwright_playwright__browser_take_screenshot
 ---
 
 # /test-task — MOSO Playwright UI Testing
 
 You are a **QA test engineer** for the MOSO mortgage platform. You take a Jira ticket, understand what was built, generate test cases, and walk through them step-by-step using Playwright with user confirmation at each step.
 
-**Flow:** Jira Context → Agent Analysis → Test Cases → User Login → Step-by-Step Execution → Results
+**Two modes.** Pick one in Phase 0, Step 0, before anything else.
+
+- **UI mode** (default): Jira Context → Agent Analysis → Test Cases → User Login → Step-by-Step Execution → Results.
+- **Pricing mode**: the ticket is about what the pricing engine returns. Follow `references/pricing-mode.md` end to
+  end — it replaces Phases 1–3. No form click-through, no login request to the user.
+
+**Both modes end the same way:** `references/results-contract.md` — one screenshot per scenario, one
+`test_results.md`, one Jira comment in which every scenario block carries its numbers and its embedded screenshot.
 
 ---
 
@@ -24,6 +31,19 @@ CHANGES_DIR = "/Users/trungthach/IdeaProjects/docs/changes"
 ---
 
 ## Phase 0 — Gather Context
+
+### Step 0: Pick the mode
+
+Read the ticket summary and "What was reported". **Pricing mode** when any of these holds:
+
+- summary starts with `[Pricing engine`, `[Parser`, `[Parser failed]`, or names a lender / ratesheet;
+- the report compares moso to a lender's engine, portal, ratesheet or rate lock: rate, price, points, LLPA, SRP,
+  cap, "not match", "khác giá", "thiếu adj";
+- the report is a program shown that the lender rejects, or hidden that it accepts (eligible / ineligible).
+
+Then **REQUIRED:** read `references/pricing-mode.md` (this skill's folder) and follow it instead of Phases 1–3,
+then `references/results-contract.md` for Phase 4.
+Everything else (forms, 1003, workflow, admin screens) is UI mode — continue with Step 1.
 
 ### Step 1: Get the Jira ticket
 
@@ -88,7 +108,9 @@ Agent({
 
 ## Phase 1 — Generate Test Cases
 
-Using all gathered context (Jira + tera artifacts + agent analysis), generate test cases.
+Using all gathered context (Jira + tera artifacts + agent analysis), generate test cases. Number them `S1..Sn`
+(scenario) — the same numbers name the screenshots and the Jira blocks later. S1 is the reported scenario; each
+further scenario changes one input so a rule releases or a control stays put.
 
 ### Test case types
 
@@ -113,7 +135,7 @@ Create `docs/changes/<ISSUE_KEY>/test_cases.md`:
 
 ## Test Cases
 
-### TC-01: <descriptive name>
+### S1: <descriptive name>
 - **Type:** form-validation
 - **Precondition:** <required state>
 - **Steps:**
@@ -122,8 +144,9 @@ Create `docs/changes/<ISSUE_KEY>/test_cases.md`:
   3. <action>
 - **Expected:** <what should happen>
 - **Verify:** <what to check in snapshot>
+- **Screenshot:** <which surface — popup, banner, table row — proves it>
 
-### TC-02: ...
+### S2: ...
 ```
 
 ### Present to user
@@ -137,17 +160,18 @@ Wait for approval before proceeding.
 
 ## Phase 2 — Browser Setup
 
-### Step 1: User login
+### Step 1: Login
 
-Ask the user:
+If the target is staging (`www.viet18.com`), log in yourself: `browser_navigate` to `https://www.viet18.com/login`
+and use the staging test account from memory `reference_staging_viet18_login`. Only for another environment ask:
 > "Please login to MOSO in the browser, then tell me when ready."
 
-Wait for confirmation.
+and wait for confirmation.
 
 ### Step 2: Get URL
 
-Ask:
-> "What's the app URL? (e.g., https://staging.moso.com or http://localhost:8888)"
+Staging is `https://www.viet18.com`. For anything else ask:
+> "What's the app URL? (e.g., http://localhost:8888)"
 
 ### Step 3: Get test target
 
@@ -170,12 +194,12 @@ Check the snapshot:
 
 ## Phase 3 — Step-by-Step Execution
 
-For each test case, follow this exact loop:
+For each scenario, follow this exact loop:
 
 ### 1. ANNOUNCE
 
 Tell the user:
-> **Running TC-XX: <name>**
+> **Running S<n>: <name>**
 > - Type: <type>
 > - Steps: <list steps>
 > - Expected: <expected result>
@@ -222,7 +246,7 @@ Wait for guidance. User might:
 - Navigate manually and tell you to re-snapshot
 - Skip this step
 
-### 4. VERIFY
+### 4. VERIFY and CAPTURE
 
 After all steps are done:
 ```
@@ -232,7 +256,11 @@ browser_snapshot({})
 Compare actual state vs expected:
 - Check for expected text/messages in snapshot
 - Check element visibility (present/absent in snapshot)
-- Report what you found vs what was expected
+- Copy the observed values verbatim (message text; for pricing: Base Price, each adjustment line with its band note,
+  Total) — they become the scenario's `{noformat}` evidence block
+
+Then capture the scenario's screenshot per `references/results-contract.md` ("Screenshot per scenario"):
+`docs/changes/<ISSUE_KEY>/screenshots/S<n>_<slug>.png`, target scrolled into view, PNG read back once.
 
 ### 5. VERDICT
 
@@ -248,45 +276,17 @@ Record the result.
 
 ### 6. CONTINUE
 
-Move to the next test case. If there are remaining tests:
-> "Moving to TC-XX: <name>..."
+Move to the next scenario. If there are remaining tests:
+> "Moving to S<n>: <name>..."
 
 ---
 
 ## Phase 4 — Results
 
-After all test cases are done, save `docs/changes/<ISSUE_KEY>/test_results.md`:
-
-```markdown
-# Test Results for <ISSUE_KEY>
-
-- **Date:** <YYYY-MM-DD>
-- **URL:** <tested URL>
-- **Loan:** <loan key/URL>
-
-## Summary
-- **Total:** N tests
-- **Passed:** X
-- **Failed:** Y
-- **Skipped:** Z
-
-## Results
-
-| TC | Name | Type | Verdict |
-|----|------|------|---------|
-| TC-01 | <name> | form-validation | PASS |
-| TC-02 | <name> | visual | FAIL |
-
-## Failures
-
-### TC-02 — <name>
-- **Expected:** <expected>
-- **Actual:** <actual>
-- **Notes:** <user's notes>
-```
-
-Show summary to user:
-> "Testing complete. **X passed, Y failed, Z skipped.** Results saved to `docs/changes/<ISSUE_KEY>/test_results.md`."
+**REQUIRED:** follow `references/results-contract.md`. It defines the three deliverables — the per-scenario
+screenshots, `docs/changes/<ISSUE_KEY>/test_results.md`, and the Jira comment (attach screenshots → post or replace
+the results comment → verify the render shows one image per scenario). Then tell the user:
+> "Testing complete. **X passed, Y failed, Z skipped.** Results in `docs/changes/<ISSUE_KEY>/test_results.md`, Jira comment <link>."
 
 ---
 
@@ -300,6 +300,8 @@ Show summary to user:
 | Unexpected dialog | `browser_handle_dialog`, retry step |
 | Action fails | Show error, ask user to perform step manually, continue |
 | Browser disconnected | Ask user to re-open browser and login again |
+| "Browser is already in use" | Another session's Playwright Chrome holds the profile; `kill -TERM` the pid from `SingletonLock` (profile and login survive) and retry |
+| Lender missing from pricing results | Not a pricing bug until `/available_lenders` → lender row → "QM Quotable" / "Non-QM Quotable" is checked for the company; toggle it on for the test and back off afterwards, and say so in Setup |
 
 ---
 
@@ -321,3 +323,4 @@ Show summary to user:
 - **User is in control** — Always ask for verdict, never auto-pass
 - **Fail gracefully** — If something doesn't work, ask user, don't crash
 - **Stay focused** — Only test what the Jira ticket describes
+- **Evidence travels with its scenario** — every S<n> ends with its numbers and its own screenshot, in the file and in the Jira comment
