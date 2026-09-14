@@ -54,7 +54,7 @@ Read `/Users/trungthach/IdeaProjects/moso-docs/memory/coding-patterns.md` — co
 
 | Module | Additional Rules |
 |--------|-----------------|
-| `moso-pricing/` | Read `/Users/trungthach/IdeaProjects/moso-pricing/docs/parser-patterns.md` — 8 critical parser rules |
+| `moso-pricing/` | Read `/Users/trungthach/IdeaProjects/moso-pricing/docs/parser-patterns.md` — 8 critical parser rules; lender docs must be updated in `docs/lenders/<slug>/README.md` + `history.md`; reject any `docs/changes/` or `MOSO-xxxxx` folder committed inside a product repo |
 | Server ops (`/op/`, `/service/`) | Read `/Users/trungthach/IdeaProjects/moso-docs/docs/core/ENTITY_GUIDE.md` (sections on HasValues, Bean, FK loading) |
 | `.properties` files | i18n rule: ALL 3 variants must be updated (`.properties`, `_zh.properties`, `_vi.properties`) |
 

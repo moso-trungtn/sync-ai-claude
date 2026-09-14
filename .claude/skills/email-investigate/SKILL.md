@@ -43,7 +43,7 @@ Before spawning the subagents, do a fast scan so they get focused context, not a
 Heuristics for where to look:
 
 - **Entity name in email** (Loan, Alert, Admin, Contact, Quote, Rate, etc.) → `Glob` for `**/<Entity>*.java` under `base/` and `moso/`.
-- **Lender / parser mentioned** → check `moso-pricing/docs/lenders/<lender>.md` and `moso-pricing/src/main/java/.../<Lender>*.java`.
+- **Lender / parser mentioned** → check `moso-pricing/docs/lenders/<slug>/README.md` and `moso-pricing/src/main/java/.../<Lender>*.java`.
 - **Feature area named** (1003, fee worksheet, credit report, pricing, AUS, rate alert, RE division) → note the corresponding `moso-docs/docs/features/<NAME>_GUIDE.md`.
 - **Error / exception text quoted** → `Grep` for a distinctive string from it across the workspace.
 - **HTTP endpoint or URL path** → `Grep` the path segment.
@@ -123,7 +123,7 @@ Both subagents need full tool access (Read / Grep / Glob / Bash) so they can act
   > 4. `moso-docs/docs/core/ENTITY_INHERITANCE_GUIDE.md` — entity hierarchy discovery
   > 5. `moso-docs/memory/coding-patterns.md` — 15 mandatory coding rules (method chaining, hasValue, dot(), label fields, etc.)
   > 6. Relevant feature guide in `moso-docs/docs/features/*_GUIDE.md` based on what the email is about
-  > 7. If the issue is about rate sheet parsing: `moso-pricing/CLAUDE.md` and `moso-pricing/docs/lenders/<lender>.md`
+  > 7. If the issue is about rate sheet parsing: `moso-pricing/CLAUDE.md` and `moso-pricing/docs/lenders/<slug>/README.md`
   > 8. If the issue is about a test/loan-pack thing: `packs/loan/CLAUDE.md`
   >
   > **How you work:**
@@ -585,7 +585,7 @@ The ticket has two audiences — the top half is for non-tech readers (you, QC, 
 - **Cite line numbers.** Devs jump straight to the editor from the path-and-line. Without it, they re-investigate from scratch.
 - **Follow CLAUDE.md patterns.** When the fix involves entity code, reference the relevant `moso-docs/docs/core/ENTITY_GUIDE.md` section and the matching `memory/coding-patterns.md` rule number.
 - **Honor i18n rules.** If the fix involves UI text, add a docs item: "Add the new message to `.properties`, `_zh.properties`, and `_vi.properties`, then run `mvn test -Dtest=StringsTest#testStaticConfiguration`."
-- **Honor parser rules.** If the fix involves a ratesheet parser, add a docs item: "Update `moso-pricing/docs/lenders/<lender>.md` per the project's parser-fix workflow."
+- **Honor parser rules.** If the fix involves a ratesheet parser, add a docs item: "Update `moso-pricing/docs/lenders/<slug>/README.md` and add a `history.md` entry per the project's parser-fix workflow."
 - **Data safety is non-optional.** Every ticket must answer "Datafix required?" with a clear Yes or No — never leave it blank, never write "maybe", never say "the dev will figure it out". When Yes, the ticket must include Scope + Backfill intent + Suggested split, AND must direct the dev to use the **`datafix-creator`** skill to produce the actual script (do not hand-write datafix scripts — they bypass the QC step). The reviewer-facing acceptance checklist in the template must remain so the PR review can verify the produced script honors all guards. A code fix that leaves historical records in a corrupt state is a regression, not a fix.
 
 **Universal rules**

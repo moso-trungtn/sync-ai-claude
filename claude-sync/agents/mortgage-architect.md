@@ -203,13 +203,17 @@ moso-docs/docs/framework/UI_DROPDOWN_GROUPING.md    — Dropdown grouping
 
 ## Pricing / Rate Sheet Parsing (moso-pricing/docs/)
 ```
+moso-pricing/docs/README.md                     — Knowledge-base index (start here)
+moso-pricing/docs/lenders/README.md             — Lender docs contract: LenderType -> folder, file roles, update rules
+moso-pricing/docs/lenders/<slug>/README.md      — Per-lender parser reference
+moso-pricing/docs/lenders/<slug>/history.md     — Per-lender dated change log
+moso-pricing/docs/lenders/<slug>/nonqm.md       — Per-lender Non-QM parser family (when present)
 moso-pricing/docs/parser-patterns.md      — Parser architecture
 moso-pricing/docs/rate-parser.md          — Rate parsing logic
 moso-pricing/docs/adj-*.md               — Adjustment calculation docs
 moso-pricing/docs/ratesheet-update-process.md — Rate sheet update workflow
 moso-pricing/docs/excel-parser-tricks.md  — Excel parsing techniques
 moso-pricing/docs/update-lender-doc.md    — Lender documentation updates
-moso-pricing/docs/lenders/*.md            — Per-lender parser docs
 ```
 
 ## Memory & AI Context

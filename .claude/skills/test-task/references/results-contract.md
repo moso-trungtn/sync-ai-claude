@@ -3,8 +3,8 @@
 Runs after the last scenario, in both modes. Three artifacts share one scenario order, one numbering (S1..Sn) and one
 set of screenshot filenames:
 
-1. `docs/changes/<KEY>/screenshots/S<n>_<slug>.png` — one per scenario.
-2. `docs/changes/<KEY>/test_results.md` — header + the per-scenario blocks below + notes.
+1. `$CHANGES_DIR/<KEY>/screenshots/S<n>_<slug>.png` — one per scenario.
+2. `$CHANGES_DIR/<KEY>/test_results.md` — header + the per-scenario blocks below + notes.
 3. One Jira comment on `<KEY>` built from the same blocks; every block ends with its screenshot embedded.
    Status stays In Progress.
 
@@ -21,7 +21,7 @@ The screenshot shows the surface that carries the verdict, with the numbers legi
   shows.
 - **Form / workflow tickets:** the message, banner, field state or table row the scenario asserts.
 
-`browser_take_screenshot({ filename: "docs/changes/<KEY>/screenshots/S<n>_<slug>.png", scale: "css" })` —
+`browser_take_screenshot({ filename: "$CHANGES_DIR/<KEY>/screenshots/S<n>_<slug>.png", scale: "css" })` —
 a relative filename lands under `PROJECT_ROOT`. Read the PNG back once (Read tool): the heading and the total must be
 inside the frame; retake if cut off.
 

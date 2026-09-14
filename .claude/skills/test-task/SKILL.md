@@ -65,7 +65,7 @@ Save the ticket summary, description, and acceptance criteria.
 
 ### Step 2: Check for tera artifacts
 
-Check if `docs/changes/<ISSUE_KEY>/` exists:
+Check if `$CHANGES_DIR/<ISSUE_KEY>/` exists:
 - `specs.md` — requirements, affected layers, acceptance criteria
 - `ui_design_refine.md` — UI components, form fields, watchers
 - `beads_plan.md` — what code was changed
@@ -123,7 +123,7 @@ further scenario changes one input so a rule releases or a control stays put.
 
 ### Generate and save
 
-Create `docs/changes/<ISSUE_KEY>/test_cases.md`:
+Create `$CHANGES_DIR/<ISSUE_KEY>/test_cases.md`:
 
 ```markdown
 # Test Cases for <ISSUE_KEY>
@@ -260,7 +260,7 @@ Compare actual state vs expected:
   Total) — they become the scenario's `{noformat}` evidence block
 
 Then capture the scenario's screenshot per `references/results-contract.md` ("Screenshot per scenario"):
-`docs/changes/<ISSUE_KEY>/screenshots/S<n>_<slug>.png`, target scrolled into view, PNG read back once.
+`$CHANGES_DIR/<ISSUE_KEY>/screenshots/S<n>_<slug>.png`, target scrolled into view, PNG read back once.
 
 ### 5. VERDICT
 
@@ -284,9 +284,9 @@ Move to the next scenario. If there are remaining tests:
 ## Phase 4 — Results
 
 **REQUIRED:** follow `references/results-contract.md`. It defines the three deliverables — the per-scenario
-screenshots, `docs/changes/<ISSUE_KEY>/test_results.md`, and the Jira comment (attach screenshots → post or replace
+screenshots, `$CHANGES_DIR/<ISSUE_KEY>/test_results.md`, and the Jira comment (attach screenshots → post or replace
 the results comment → verify the render shows one image per scenario). Then tell the user:
-> "Testing complete. **X passed, Y failed, Z skipped.** Results in `docs/changes/<ISSUE_KEY>/test_results.md`, Jira comment <link>."
+> "Testing complete. **X passed, Y failed, Z skipped.** Results in `$CHANGES_DIR/<ISSUE_KEY>/test_results.md`, Jira comment <link>."
 
 ---
 

@@ -2,11 +2,10 @@
 
 ## Where it goes
 
-`moso-pricing/docs/lenders/` — the same files the parser knowledge already lives in:
-
-- a lender with its own file (`pennymac.md`, `provident.md`, ...) gets the section appended
-- a lender documented inside a grouped file (`medium-lenders.md`, `simple-lenders.md`) gets
-  the section nested under its existing `## <Lender>` heading
+`moso-pricing/docs/lenders/<slug>/README.md` (the lender's folder) — the same file the parser
+knowledge already lives in; the section is appended to that README. Resolve the folder via the
+lender docs contract `moso-pricing/docs/lenders/README.md` or `packs/loan/lender-info.sh <LenderType>`
+(a `Correspondent` key shares the wholesale lender's folder).
 
 Never `moso-docs` — that repo is not pushed for everyone. Do not commit guideline PDFs;
 record the link and the version instead.
@@ -69,7 +68,7 @@ never send them to an external service.
 **Write findings into the lender doc as you read, not at the end.** The scratch directory is
 volatile: a 122-lender / 2082-file inventory and a set of downloaded guidelines were wiped
 mid-session on 09/04/2026. Re-fetching one PDF costs seconds, but a broad inventory costs
-over an hour, so anything worth keeping belongs in `moso-pricing/docs/lenders/` the moment
+over an hour, so anything worth keeping belongs in `moso-pricing/docs/lenders/<slug>/README.md` the moment
 you have it.
 
 ## The section
@@ -143,5 +142,5 @@ cannot see, so it is the new information.
 
 **Date every claim.** Guidelines are revised a few times a year with no notice. A row
 without `Effective`/`Retrieved` cannot be trusted later. When a guideline is re-read and a
-value changed, replace the row and note the change with its ticket, matching how
-`medium-lenders.md` already records dated changes.
+value changed, replace the row and note the change with its ticket, and add the dated
+entry to `<slug>/history.md` like every other parser change.

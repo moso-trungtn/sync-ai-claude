@@ -45,12 +45,12 @@ and every rule that was added or changed releases on its own control. The local 
 6. **Screenshot each scenario in the UI.** Load `/pricing/qm` or `/pricing/non_qm` with the scenario's fields as
    URL params in enum **names** plus `alert_lenders=<LenderType>` (the page auto-quotes; wait 20–30 s), click the
    lender name in the row at the ticket's rate (the `N` button expands DU / LP / other programs), scroll the
-   *Pricing adjustment* table into view and save `docs/changes/<KEY>/screenshots/S<n>_<slug>.png`. For an
+   *Pricing adjustment* table into view and save `$CHANGES_DIR/<KEY>/screenshots/S<n>_<slug>.png`. For an
    ineligible-program scenario the screenshot is the results list proving the program is absent. Details in
    `references/results-contract.md`.
-7. **Record.** `docs/changes/<KEY>/test_cases.md` and `test_results.md` (per-scenario blocks per the results
-   contract), copied into `moso-pricing/docs/changes/<KEY>/` and committed as
-   `MOSO-XXXXX: staging test cases and results for <topic>` (one commit, no push).
+7. **Record.** `$CHANGES_DIR/<KEY>/test_cases.md` and `test_results.md` (per-scenario blocks per the results
+   contract), kept in `$CHANGES_DIR/<KEY>/` (the workspace folder `/Users/trungthach/IdeaProjects/docs/changes/<KEY>/`)
+   — never copied into or committed to a product repo.
 8. **Jira.** Attach the screenshots, post the results-contract comment (or `PUT` over this run's earlier results
    comment), verify the render shows one image per scenario. Status stays In Progress.
 

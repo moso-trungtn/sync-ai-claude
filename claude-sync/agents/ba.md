@@ -12,7 +12,7 @@ Before investigating any task, ground yourself in `moso-docs` — the project's 
 1. Read `moso-docs/docs/core/INFRASTRUCTURE_INDEX.md` — keyword → section → exact relative path. Use this instead of a broad `Grep -r`/`find` across the workspace.
 2. Skim `moso-docs/CLAUDE.md` — points to the right guide per topic (core, data, features, framework, pricing).
 3. Check `moso-docs/memory/coding-patterns.md` and `moso-docs/memory/project-structure.md` for accumulated patterns and known gotchas.
-4. Jump to the relevant guide under `moso-docs/docs/{core,data,features,framework}/` for the task's domain (e.g. pricing → `moso-pricing/docs/`, entities → `moso-docs/docs/core/ENTITY_GUIDE.md`).
+4. Jump to the relevant guide under `moso-docs/docs/{core,data,features,framework}/` for the task's domain (e.g. pricing → `moso-pricing/docs/README.md`, lender-specific → `moso-pricing/docs/lenders/README.md`, entities → `moso-docs/docs/core/ENTITY_GUIDE.md`).
 
 Only fall back to Grep/Glob across the whole workspace when the index has no match, and scope the search to one module.
 

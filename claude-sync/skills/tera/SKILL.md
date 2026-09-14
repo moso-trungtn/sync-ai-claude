@@ -126,7 +126,7 @@ If there is a bug in the report code itself, describe the specific Java class or
    - A feature/bug description the user just described in natural language
    - A file path or class name they mentioned that needs changing
    - A Jira key mentioned anywhere in the conversation (e.g., `MOSO-XXXXX`)
-   - A `docs/changes/<KEY>/specs.md` or `beads_plan.md` that already exists
+   - A `$MOSO_WORKSPACE/docs/changes/<ISSUE_KEY>/specs.md` or `beads_plan.md` that already exists
 
 2. **Check existing docs** in parallel:
    ```bash
@@ -329,7 +329,7 @@ Single module, single pattern. Never use `xargs grep` across all files.
 [exec 1/5] BA — Writing specs.md...
 ```
 
-Create `docs/changes/<ISSUE_KEY>/specs.md`:
+Create `$MOSO_WORKSPACE/docs/changes/<ISSUE_KEY>/specs.md`:
 
 ```markdown
 # <ISSUE_KEY>: <summary>
@@ -402,7 +402,7 @@ Key GWT client locations:
 
 ### 2.2 Write ui_design_refine.md
 
-Create `docs/changes/<ISSUE_KEY>/ui_design_refine.md`:
+Create `$MOSO_WORKSPACE/docs/changes/<ISSUE_KEY>/ui_design_refine.md`:
 
 ```markdown
 # UI/UX Design: <ISSUE_KEY>
@@ -458,7 +458,7 @@ emit_pipeline_phase "dev-lead" && emit_agent_start "dev-lead" "Decomposing into 
 `specs.md` is already in context from STEP 1 — do NOT re-read it.
 
 Only read if it exists and was not already read this session:
-- `docs/changes/<ISSUE_KEY>/ui_design_refine.md` (if client changes)
+- `$MOSO_WORKSPACE/docs/changes/<ISSUE_KEY>/ui_design_refine.md` (if client changes)
 
 Read the actual key files from specs.md to verify the design is feasible (use infrastructure_index paths directly).
 
@@ -486,7 +486,7 @@ emit_agent_subtask "dev-lead" "Bead 4: Client UI" "pending" "<description>"
 
 ### 3.3 Write beads_plan.md
 
-Create `docs/changes/<ISSUE_KEY>/beads_plan.md`:
+Create `$MOSO_WORKSPACE/docs/changes/<ISSUE_KEY>/beads_plan.md`:
 
 ```markdown
 # Beads Plan: <ISSUE_KEY>
@@ -660,7 +660,7 @@ git diff HEAD --stat
 
 ### 5.2 Write PR Description
 
-Create `docs/changes/<ISSUE_KEY>/pr_description.md`:
+Create `$MOSO_WORKSPACE/docs/changes/<ISSUE_KEY>/pr_description.md`:
 
 ```markdown
 # [<ISSUE_KEY>] <ticket summary>
@@ -709,7 +709,7 @@ Output to user:
 <list from git diff --stat>
 
 ### Artifacts
-docs/changes/<ISSUE_KEY>/
+$MOSO_WORKSPACE/docs/changes/<ISSUE_KEY>/
   - specs.md
   - ui_design_refine.md (if applicable)
   - beads_plan.md
@@ -737,3 +737,5 @@ Ready for manual review and merge.
 7. **Index Update**: After creating a new Java class/Op → append it to the correct section in `infrastructure_index.md` before finishing STEP 4.
 
 8. **Dashboard Emit**: Always emit status events at phase transitions, agent start/complete, test results, and retries. This keeps the live dashboard in sync.
+
+9. **Working files stay in the workspace**: everything under `$MOSO_WORKSPACE/docs/changes/<ISSUE_KEY>/` is scratch; never create it under a repo checkout and never `git add` it.

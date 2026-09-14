@@ -22,7 +22,7 @@ The user will provide a Jira key (e.g., MOSO-14658). Analyze that Jira issue and
 Before investigating the Jira task, ground yourself in the docs:
 1. Read `moso-docs/docs/core/INFRASTRUCTURE_INDEX.md` for keyword → path lookups outside the pricing module.
 2. Check `moso-pricing/docs/parser-patterns.md`, `moso-pricing/docs/adj-*.md`, and `moso-pricing/docs/rate-parser.md` for parser architecture conventions.
-3. Check `moso-pricing/docs/lenders/<lender>.md` if it exists for lender-specific history.
+3. Check the lender's folder `moso-pricing/docs/lenders/<slug>/` if it exists: `README.md` (parser reference), `history.md` (dated change log) and `nonqm.md` (for Non-QM work). Resolve the folder via the lender docs contract `moso-pricing/docs/lenders/README.md` or `packs/loan/lender-info.sh <LenderType>`.
 4. Check `moso-docs/memory/coding-patterns.md` for accumulated parser-fix patterns.
 
 ## Step 1: Fetch Jira Task
@@ -68,7 +68,7 @@ Read the existing parser files (Tables, AdjustmentParser, RateParser) to underst
 - What field numbers are already used (find next available field_N)
 - What validation rules exist
 
-Read lender doc if it exists: `moso-pricing/docs/lenders/<lender>.md`
+Read lender docs if they exist: `moso-pricing/docs/lenders/<slug>/README.md` (+ `history.md`, and `nonqm.md` for Non-QM work)
 
 ## Step 4: Produce Structured Output
 
@@ -128,7 +128,7 @@ Return your analysis in EXACTLY this format:
 - **Dependencies**: Subtask 1
 
 #### Subtask 4: Update Lender Documentation
-- **File**: moso-pricing/docs/lenders/<lender>.md
+- **Files**: moso-pricing/docs/lenders/<slug>/README.md (only the sections that changed) + a new entry at the top of moso-pricing/docs/lenders/<slug>/history.md (and nonqm.md for Non-QM work)
 - **Dependencies**: Subtasks 1-3
 
 ### Risk Assessment

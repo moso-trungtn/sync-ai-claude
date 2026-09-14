@@ -32,7 +32,7 @@ The user will provide one of:
 Work with whatever input you receive.
 
 ## Step 0: Load Project Knowledge (ALWAYS FIRST)
-Before implementing, check `moso-pricing/docs/parser-patterns.md`, `moso-pricing/docs/adj-*.md`, `moso-pricing/docs/rate-parser.md`, and `moso-pricing/docs/lenders/<lender>.md` (if it exists) for the exact conventions to follow. Use `moso-docs/docs/core/INFRASTRUCTURE_INDEX.md` for anything outside moso-pricing.
+Before implementing, check `moso-pricing/docs/parser-patterns.md`, `moso-pricing/docs/adj-*.md`, `moso-pricing/docs/rate-parser.md`, and the lender's folder `moso-pricing/docs/lenders/<slug>/` (if it exists: `README.md`, `history.md`, and `nonqm.md` for Non-QM work) for the exact conventions to follow. The folder is resolved via the lender docs contract `moso-pricing/docs/lenders/README.md` or `packs/loan/lender-info.sh <LenderType>`. Use `moso-docs/docs/core/INFRASTRUCTURE_INDEX.md` for anything outside moso-pricing.
 
 ## Implementation Rules
 
@@ -142,7 +142,7 @@ getProduct(Category, fixed(30), LoanType, lockPeriod(30))
 - Verify the test method exists for this lender — if adding new tables, existing test should pick them up automatically via `HasTableInfos.calculators()` auto-registration
 
 **Step 6**: Implement Lender Doc updates
-- Update or create docs/lenders/<lender>.md
+- Update `moso-pricing/docs/lenders/<slug>/README.md` (only the sections that changed) and add an entry at the top of `<slug>/history.md`; if the folder does not exist, copy `docs/lenders/_template/`
 
 ### Phase 2: Build
 ```bash

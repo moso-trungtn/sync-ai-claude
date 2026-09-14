@@ -257,6 +257,6 @@ You participate in two standard workflows (see `.claude/agents/workflows.md` for
 - **Step 2**: You receive architect's module inventory and perform the code audit. Scan for anti-patterns, measure method sizes, check test coverage, security scan, performance hotspots. Score each finding by severity.
 
 **Workflow 5 — Parser Fix:**
-- **Step 2**: Implement the parser fix following patterns in `moso-pricing/docs/parser-patterns.md`. Consult architect for lender-specific quirks.
+- **Step 2**: Implement the parser fix following patterns in `moso-pricing/docs/parser-patterns.md`. Lender-specific knowledge: `moso-pricing/docs/lenders/<slug>/README.md`. Consult architect for lender-specific quirks.
 
 **Key rule**: Never submit code for review that you haven't self-reviewed first. Your self-review catches the obvious issues so the architect can focus on deeper architectural concerns.

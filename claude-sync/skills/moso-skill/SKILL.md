@@ -166,6 +166,7 @@ moso-pricing/src/main/java/com/mosopricing/
 │       │   └── [calculator groups]
 │       └── LenderParserMap.java
 ├── docs/                           (Comprehensive documentation)
+│   ├── README.md                   (Knowledge-base index — start here)
 │   ├── rate-parser.md
 │   ├── adj-tableinfo.md
 │   ├── adj-pageparser.md
@@ -176,8 +177,9 @@ moso-pricing/src/main/java/com/mosopricing/
 │   ├── parser-patterns.md
 │   ├── ratesheet-update-process.md
 │   ├── update-lender-doc.md
-│   ├── lenders/                    (Lender-specific documentation)
-│   └── MEMORY.md
+│   └── lenders/                    (One folder per lender)
+│       ├── README.md               (Lender docs contract)
+│       └── <slug>/README.md | history.md | nonqm.md
 ├── CLAUDE.md                       (AI agent instructions)
 └── shared/
     ├── entity/
@@ -238,13 +240,15 @@ moso-pricing/src/main/java/com/mosopricing/
 - Bouncy Castle - Cryptography
 
 **Documentation:**
+- `docs/README.md` - Knowledge-base index (start here)
 - `docs/rate-parser.md` - Rate extraction architecture
 - `docs/adj-tableinfo.md` - Adjustment table structure
 - `docs/adj-pageparser.md` - Page parsing strategies
 - `docs/adj-conditions.md` - Condition resolution
 - `docs/adj-calculator.md` - Calculation logic
 - `docs/adj-howto-new-parser.md` - Complete guide for new parsers
-- `docs/lenders/` - Lender-specific documentation
+- `docs/lenders/README.md` - Lender docs contract (LenderType -> folder, file roles, update rules)
+- `docs/lenders/<slug>/README.md` - Per-lender parser reference (+ `history.md`, `nonqm.md`)
 
 ---
 
@@ -434,6 +438,7 @@ pack-name/
 │   │   │       └── [parser classes]
 │   │   └── shared/
 │   ├── docs/                               (📚 Comprehensive documentation)
+│   │   ├── README.md                    (Knowledge-base index — start here)
 │   │   ├── rate-parser.md
 │   │   ├── adj-tableinfo.md
 │   │   ├── adj-pageparser.md
@@ -443,8 +448,9 @@ pack-name/
 │   │   ├── excel-parser-tricks.md
 │   │   ├── parser-patterns.md
 │   │   ├── ratesheet-update-process.md
-│   │   ├── lenders/                     (Lender-specific docs)
-│   │   └── MEMORY.md
+│   │   └── lenders/                     (One folder per lender)
+│   │       ├── README.md                (Lender docs contract)
+│   │       └── <slug>/README.md | history.md | nonqm.md
 │   ├── CLAUDE.md                         (AI agent instructions)
 │   └── src/test/java/                    (Unit tests)
 │
@@ -1018,6 +1024,9 @@ moso-pricing operations
 | **MODULE_INTERACTIONS.md** | `/Users/trungthach/IdeaProjects/` | 📚 Data flows and interactions |
 | **QUICK_REFERENCE.md** | `/Users/trungthach/IdeaProjects/` | 📚 Quick lookup card |
 | **UNDERSTAND_MOSO.md** | `/Users/trungthach/IdeaProjects/` | 📚 THIS FILE - Complete reference |
+| **README.md** | `moso-pricing/docs/` | 📚 Knowledge-base index (start here) |
+| **README.md** | `moso-pricing/docs/lenders/` | 📚 Lender docs contract (LenderType -> folder, file roles, update rules) |
+| **README.md** | `moso-pricing/docs/lenders/<slug>/` | 📚 Per-lender parser reference (+ history.md, nonqm.md) |
 | **rate-parser.md** | `moso-pricing/docs/` | 📚 Rate extraction architecture |
 | **adj-tableinfo.md** | `moso-pricing/docs/` | 📚 Adjustment table structure |
 | **adj-pageparser.md** | `moso-pricing/docs/` | 📚 Page parsing logic |
@@ -1056,7 +1065,9 @@ Email handlers                             moso/src/main/java/com/lenderrate/ser
 Type keys & enumerations                   packs/[module]/shared/typekey/
 Configuration templates                    moso-configuration/src/main/resources/
 Parser documentation                       moso-pricing/docs/
-Lender-specific parser docs                moso-pricing/docs/lenders/
+Knowledge-base index                       moso-pricing/docs/README.md
+Lender docs contract                       moso-pricing/docs/lenders/README.md
+Lender-specific parser docs                moso-pricing/docs/lenders/<slug>/README.md
 Rate parsing patterns                      moso-pricing/docs/rate-parser.md
 Adjustment table info                      moso-pricing/docs/adj-tableinfo.md
 New lender parser guide                    moso-pricing/docs/adj-howto-new-parser.md
@@ -1182,7 +1193,7 @@ public class MyLenderParser extends LenderParser {
 ```
 
 2. Register in `LenderParserMap.java`
-3. Document in `moso-pricing/docs/lenders/`
+3. Document in `moso-pricing/docs/lenders/<slug>/README.md` + `history.md`
 
 ---
 

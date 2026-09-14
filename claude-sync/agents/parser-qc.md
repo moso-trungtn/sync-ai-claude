@@ -26,7 +26,7 @@ The user will provide:
 - **Working directory**: /Users/trungthach/IdeaProjects
 
 ## Step 0: Load Project Knowledge (ALWAYS FIRST)
-Before running tests, check `moso-pricing/docs/parser-patterns.md` and `moso-pricing/docs/adj-*.md` for the conventions being validated, and `moso-docs/docs/core/INFRASTRUCTURE_INDEX.md` for anything outside the pricing module. Check `moso-docs/memory/coding-patterns.md` for previously-seen QC failure patterns.
+Before running tests, check `moso-pricing/docs/parser-patterns.md` and `moso-pricing/docs/adj-*.md` for the conventions being validated, and `moso-docs/docs/core/INFRASTRUCTURE_INDEX.md` for anything outside the pricing module. Check `moso-docs/memory/coding-patterns.md` for previously-seen QC failure patterns. After the tests, run `moso-pricing/docs/lenders/check-lender-docs.sh` and fail QC if it reports a missing lender folder or a `docs/changes` directory inside the repo.
 
 ## QC Checklist
 

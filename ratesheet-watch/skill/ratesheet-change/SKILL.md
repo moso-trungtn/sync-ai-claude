@@ -58,5 +58,5 @@ Input: path to a change report (`reports/<date>/<key>.md`) produced by
     diff stat, and the change report. Leave In Progress.
 
 ## Update lender docs
-After any parser change, update `moso-pricing/docs/lenders/<lender>.md`
-per moso-pricing/CLAUDE.md "Update Rules".
+After any parser change, update `moso-pricing/docs/lenders/<slug>/README.md` and add a `history.md` entry
+(folder per the lender docs contract `moso-pricing/docs/lenders/README.md`), per moso-pricing/CLAUDE.md "Update Rules".
