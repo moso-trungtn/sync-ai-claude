@@ -9,7 +9,7 @@ type: project
 ## Quick Activation
 
 When user says **"ai-parser"**, activate parser-fix mode and:
-1. Read lender registry from `moso-pricing/docs/MEMORY.md`
+1. Read `moso-pricing/docs/README.md` (knowledge base) and `moso-pricing/docs/lenders/README.md` (one folder per lender)
 2. Present tool capabilities
 3. Ask which lender + which task
 4. Operate in parser context using tools below
@@ -179,8 +179,8 @@ cd /path/to/packs/loan
 | Resource | Location |
 |----------|----------|
 | Detailed parser-fix workflow | `moso-pricing/CLAUDE.md` |
-| Lender registry + arch docs | `moso-pricing/docs/MEMORY.md` |
-| Per-lender deep docs | `moso-pricing/docs/lenders/<lender>.md` |
+| Knowledge-base index + arch docs | `moso-pricing/docs/README.md` |
+| Per-lender docs | `moso-pricing/docs/lenders/<slug>/README.md` + `history.md` (+ `nonqm.md`) — slug rule in `docs/lenders/README.md` |
 | Common fix patterns | `moso-pricing/docs/parser-patterns.md` |
 | Ratesheet registry | `packs/loan/src/test/java/com/mvu/loan/RatesheetFiles.java` |
 | Adj expectations | `packs/loan/src/test/resources/adj-expectations/<lenderKey>.txt` |
@@ -199,7 +199,7 @@ AI:   [reads lender registry] I can help with ratesheet parser tasks:
       Which lender and task?
 
 User: fix Freedom with /Downloads/freedom_zone1_0304.xlsx
-AI:   [runs lender-info.sh Freedom, reads docs/lenders/freedom.md,
+AI:   [runs lender-info.sh Freedom, reads docs/lenders/freedom/README.md + history.md,
        runs parser-fix.sh Freedom --ratesheet ... --both,
        reads report.txt, fixes code]
 

@@ -10,7 +10,7 @@ During `/test-task` runs, always take a screenshot before presenting each test v
 
 **How to apply:**
 1. Before each TC verdict, call `browser_take_screenshot` with `type: png`
-2. Save to `docs/changes/<ISSUE_KEY>/screenshots/tc{N}-{pass|fail}-{short-description}.png`
+2. Save to `/Users/trungthach/IdeaProjects/docs/changes/<ISSUE_KEY>/screenshots/tc{N}-{pass|fail}-{short-description}.png`
 3. In the final Jira comment, reference each screenshot by filename so the user knows which to upload
 4. Example: `tc03-pass-fha-warning-shown.png`
 5. At the end of testing, remind the user to upload screenshots from the `screenshots/` folder to the Jira ticket
