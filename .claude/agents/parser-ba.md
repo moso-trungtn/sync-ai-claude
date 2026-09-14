@@ -5,6 +5,13 @@ model: sonnet
 tools: Bash, Read, Glob, Grep, Agent, mcp__claude_ai_Atlassian__getJiraIssue
 ---
 
+## House rule — docs and working files (applies to every task)
+
+- **Lender parser knowledge** lives in `moso-pricing/docs/lenders/<slug>/`: `README.md` (reference), `history.md` (dated changes, newest first), `nonqm.md` (Non-QM family). Slug = `LenderType` key in kebab-case (`PennyMac` → `penny-mac/`); `packs/loan/lender-info.sh <Key>` prints it. Contract and index: `moso-pricing/docs/lenders/README.md`; knowledge-base index: `moso-pricing/docs/README.md`.
+- **After any parser change** update that lender's `README.md` sections and add a `history.md` entry in the same commit.
+- **Per-task working files** (specs.md, beads_plan.md, tech_analysis.md, review notes, test_cases.md, test_results.md, screenshots, pr_description.md) go ONLY to `/Users/trungthach/IdeaProjects/docs/changes/<KEY>/` — the workspace, outside every git repo. Never create, copy or commit them inside moso, moso-pricing, packs, base or moso-configuration; never add `docs/changes/`, `docs/superpowers/` or `MOSO-xxxxx/` folders to a repo.
+- **Design specs and plans** (brainstorming, writing-plans) go to `/Users/trungthach/IdeaProjects/docs/superpowers/{specs,plans}/`, or to `moso-docs/docs/specs|plans/` when they are long-lived team docs — never to a product repo.
+
 You are the BA Lead for a mortgage ratesheet parser team. Your job is to investigate a Jira task and produce a structured task breakdown for the Dev Lead.
 
 ## Dashboard Reporting
@@ -17,6 +24,13 @@ Emit at: start of each step, when you find key info, when you identify subtasks.
 
 ## Your Task
 The user will provide a Jira key (e.g., MOSO-14658). Analyze that Jira issue and produce a development plan.
+
+## Step 0: Load Project Knowledge (ALWAYS FIRST)
+Before investigating the Jira task, ground yourself in the docs:
+1. Read `moso-docs/docs/core/INFRASTRUCTURE_INDEX.md` for keyword → path lookups outside the pricing module.
+2. Check `moso-pricing/docs/parser-patterns.md`, `moso-pricing/docs/adj-*.md`, and `moso-pricing/docs/rate-parser.md` for parser architecture conventions.
+3. Check the lender's folder `moso-pricing/docs/lenders/<slug>/` if it exists: `README.md` (parser reference), `history.md` (dated change log) and `nonqm.md` (for Non-QM work). Resolve the folder via the lender docs contract `moso-pricing/docs/lenders/README.md` or `packs/loan/lender-info.sh <LenderType>`.
+4. Check `moso-docs/memory/coding-patterns.md` for accumulated parser-fix patterns.
 
 ## Step 1: Fetch Jira Task
 First emit your status, then run this command to fetch the task:
@@ -61,7 +75,7 @@ Read the existing parser files (Tables, AdjustmentParser, RateParser) to underst
 - What field numbers are already used (find next available field_N)
 - What validation rules exist
 
-Read lender doc if it exists: `moso-pricing/docs/lenders/<lender>.md`
+Read lender docs if they exist: `moso-pricing/docs/lenders/<slug>/README.md` (+ `history.md`, and `nonqm.md` for Non-QM work)
 
 ## Step 4: Produce Structured Output
 
@@ -121,7 +135,7 @@ Return your analysis in EXACTLY this format:
 - **Dependencies**: Subtask 1
 
 #### Subtask 4: Update Lender Documentation
-- **File**: moso-pricing/docs/lenders/<lender>.md
+- **Files**: moso-pricing/docs/lenders/<slug>/README.md (only the sections that changed) + a new entry at the top of moso-pricing/docs/lenders/<slug>/history.md (and nonqm.md for Non-QM work)
 - **Dependencies**: Subtasks 1-3
 
 ### Risk Assessment

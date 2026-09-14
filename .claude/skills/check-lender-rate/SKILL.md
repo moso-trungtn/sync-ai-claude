@@ -7,6 +7,17 @@ allowed-tools: Bash, Read, Edit, Write, Glob, Grep, Agent
 
 # Check Lender Rate
 
+> **House rule — docs and working files.** Per-task working files (specs, plans, test cases/results, screenshots, review notes) go ONLY to `/Users/trungthach/IdeaProjects/docs/changes/<KEY>/` (workspace, outside git) — never inside moso, moso-pricing, packs, base or moso-configuration, and never as `docs/changes/`, `docs/superpowers/` or `MOSO-xxxxx/` folders in a repo. Lender parser knowledge lives in `moso-pricing/docs/lenders/<slug>/` (`README.md` reference, `history.md` dated changes, `nonqm.md` Non-QM); after any parser change update that folder in the same commit. Contract: `moso-pricing/docs/lenders/README.md`.
+
+**Scope — read before using this on a lender you're onboarding.** All three modes below
+assume the lender is **already integrated**: a working parser exists, `<Lender>Tables.java`
+has a real `validations()`, and it's wired into `download-ratesheet.sh` / the ratesheet feed.
+This skill *audits* that existing implementation against a live quote or the guideline — it
+does not extract a brand-new lender's matrix/guideline for a ticket that doesn't exist yet.
+For a lender with no parser yet, use `/parser-task-builder --extract-only <path>` (or plain
+`/parser-task-builder <path>` to go straight to filing) instead — that's the tool that reads
+ratesheet + matrix + guideline and produces the eligibility matrix from scratch.
+
 Two different questions get asked with the same words. Decide which one is being asked
 before doing anything, because they have different answers and different evidence:
 
@@ -24,6 +35,10 @@ question.
 nothing about whether the lender would approve the loan — reserves, tradelines, financed
 properties and doc requirements are not modelled at all. Silence on that reads as an
 all-clear.
+
+All three modes run local code (or local code against remote data). To prove what the **deployed staging build**
+returns for a scenario, use `/test-task` — its pricing mode calls the pricer's own op on staging and posts the
+per-scenario matrix on the Jira.
 
 ## Start here, in every mode
 
@@ -118,7 +133,7 @@ reason is visible, with many the row is just absent.
 `validations()` covers the matrix **printed on the ratesheet**. The guideline holds the
 rest, and moso does not model it. To answer "does moso enforce this rule":
 
-1. Read the lender's `## Eligibility (guideline)` section in `moso-pricing/docs/lenders/`.
+1. Read the lender's `## Eligibility (guideline)` section in `moso-pricing/docs/lenders/<slug>/README.md`.
    If it already covers the loan type in question, stop here; the section is the answer.
 2. Otherwise fetch the guideline. Every lender's documents sit in a world-readable Drive
    folder, indexed by a local registry built from PROD's `Lender.document_links`:

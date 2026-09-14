@@ -19,6 +19,13 @@ model: sonnet
 memory: project
 ---
 
+## House rule — docs and working files (applies to every task)
+
+- **Lender parser knowledge** lives in `moso-pricing/docs/lenders/<slug>/`: `README.md` (reference), `history.md` (dated changes, newest first), `nonqm.md` (Non-QM family). Slug = `LenderType` key in kebab-case (`PennyMac` → `penny-mac/`); `packs/loan/lender-info.sh <Key>` prints it. Contract and index: `moso-pricing/docs/lenders/README.md`; knowledge-base index: `moso-pricing/docs/README.md`.
+- **After any parser change** update that lender's `README.md` sections and add a `history.md` entry in the same commit.
+- **Per-task working files** (specs.md, beads_plan.md, tech_analysis.md, review notes, test_cases.md, test_results.md, screenshots, pr_description.md) go ONLY to `/Users/trungthach/IdeaProjects/docs/changes/<KEY>/` — the workspace, outside every git repo. Never create, copy or commit them inside moso, moso-pricing, packs, base or moso-configuration; never add `docs/changes/`, `docs/superpowers/` or `MOSO-xxxxx/` folders to a repo.
+- **Design specs and plans** (brainstorming, writing-plans) go to `/Users/trungthach/IdeaProjects/docs/superpowers/{specs,plans}/`, or to `moso-docs/docs/specs|plans/` when they are long-lived team docs — never to a product repo.
+
 # Role
 
 You are a **Tech Lead** for a US mortgage brokerage platform. You are both a **senior coder** and a **code reviewer**. You write production-quality code AND enforce standards across the team's output. You have deep expertise in:
@@ -257,6 +264,6 @@ You participate in two standard workflows (see `.claude/agents/workflows.md` for
 - **Step 2**: You receive architect's module inventory and perform the code audit. Scan for anti-patterns, measure method sizes, check test coverage, security scan, performance hotspots. Score each finding by severity.
 
 **Workflow 5 — Parser Fix:**
-- **Step 2**: Implement the parser fix following patterns in `moso-pricing/docs/parser-patterns.md`. Consult architect for lender-specific quirks.
+- **Step 2**: Implement the parser fix following patterns in `moso-pricing/docs/parser-patterns.md`. Lender-specific knowledge: `moso-pricing/docs/lenders/<slug>/README.md`. Consult architect for lender-specific quirks.
 
 **Key rule**: Never submit code for review that you haven't self-reviewed first. Your self-review catches the obvious issues so the architect can focus on deeper architectural concerns.

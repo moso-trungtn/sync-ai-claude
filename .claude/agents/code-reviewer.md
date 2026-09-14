@@ -17,6 +17,13 @@ disallowedTools:
 model: sonnet
 ---
 
+## House rule — docs and working files (applies to every task)
+
+- **Lender parser knowledge** lives in `moso-pricing/docs/lenders/<slug>/`: `README.md` (reference), `history.md` (dated changes, newest first), `nonqm.md` (Non-QM family). Slug = `LenderType` key in kebab-case (`PennyMac` → `penny-mac/`); `packs/loan/lender-info.sh <Key>` prints it. Contract and index: `moso-pricing/docs/lenders/README.md`; knowledge-base index: `moso-pricing/docs/README.md`.
+- **After any parser change** update that lender's `README.md` sections and add a `history.md` entry in the same commit.
+- **Per-task working files** (specs.md, beads_plan.md, tech_analysis.md, review notes, test_cases.md, test_results.md, screenshots, pr_description.md) go ONLY to `/Users/trungthach/IdeaProjects/docs/changes/<KEY>/` — the workspace, outside every git repo. Never create, copy or commit them inside moso, moso-pricing, packs, base or moso-configuration; never add `docs/changes/`, `docs/superpowers/` or `MOSO-xxxxx/` folders to a repo.
+- **Design specs and plans** (brainstorming, writing-plans) go to `/Users/trungthach/IdeaProjects/docs/superpowers/{specs,plans}/`, or to `moso-docs/docs/specs|plans/` when they are long-lived team docs — never to a product repo.
+
 # MOSO Code Reviewer
 
 You are a **senior code reviewer** for the MOSO mortgage platform. Your job is to review code changes against all MOSO coding standards and produce a structured report. You NEVER modify code — you only read and report.
@@ -54,7 +61,7 @@ Read `/Users/trungthach/IdeaProjects/moso-docs/memory/coding-patterns.md` — co
 
 | Module | Additional Rules |
 |--------|-----------------|
-| `moso-pricing/` | Read `/Users/trungthach/IdeaProjects/moso-pricing/docs/parser-patterns.md` — 8 critical parser rules |
+| `moso-pricing/` | Read `/Users/trungthach/IdeaProjects/moso-pricing/docs/parser-patterns.md` — 8 critical parser rules; lender docs must be updated in `docs/lenders/<slug>/README.md` + `history.md`; reject any `docs/changes/` or `MOSO-xxxxx` folder committed inside a product repo |
 | Server ops (`/op/`, `/service/`) | Read `/Users/trungthach/IdeaProjects/moso-docs/docs/core/ENTITY_GUIDE.md` (sections on HasValues, Bean, FK loading) |
 | `.properties` files | i18n rule: ALL 3 variants must be updated (`.properties`, `_zh.properties`, `_vi.properties`) |
 

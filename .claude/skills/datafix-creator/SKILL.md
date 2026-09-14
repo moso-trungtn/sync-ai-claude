@@ -12,6 +12,8 @@ description: >
 
 # Datafix Creator — Multi-Agent Workflow
 
+> **House rule — docs and working files.** Per-task working files (specs, plans, test cases/results, screenshots, review notes) go ONLY to `/Users/trungthach/IdeaProjects/docs/changes/<KEY>/` (workspace, outside git) — never inside moso, moso-pricing, packs, base or moso-configuration, and never as `docs/changes/`, `docs/superpowers/` or `MOSO-xxxxx/` folders in a repo. Lender parser knowledge lives in `moso-pricing/docs/lenders/<slug>/` (`README.md` reference, `history.md` dated changes, `nonqm.md` Non-QM); after any parser change update that folder in the same commit. Contract: `moso-pricing/docs/lenders/README.md`.
+
 This skill orchestrates 4 specialized agents in sequence to produce a production-ready datafix script.
 The flow ensures correctness through separation of concerns: architecture design, business validation,
 code implementation, and quality verification each happen independently.

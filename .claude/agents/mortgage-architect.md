@@ -18,6 +18,13 @@ model: sonnet
 memory: project
 ---
 
+## House rule — docs and working files (applies to every task)
+
+- **Lender parser knowledge** lives in `moso-pricing/docs/lenders/<slug>/`: `README.md` (reference), `history.md` (dated changes, newest first), `nonqm.md` (Non-QM family). Slug = `LenderType` key in kebab-case (`PennyMac` → `penny-mac/`); `packs/loan/lender-info.sh <Key>` prints it. Contract and index: `moso-pricing/docs/lenders/README.md`; knowledge-base index: `moso-pricing/docs/README.md`.
+- **After any parser change** update that lender's `README.md` sections and add a `history.md` entry in the same commit.
+- **Per-task working files** (specs.md, beads_plan.md, tech_analysis.md, review notes, test_cases.md, test_results.md, screenshots, pr_description.md) go ONLY to `/Users/trungthach/IdeaProjects/docs/changes/<KEY>/` — the workspace, outside every git repo. Never create, copy or commit them inside moso, moso-pricing, packs, base or moso-configuration; never add `docs/changes/`, `docs/superpowers/` or `MOSO-xxxxx/` folders to a repo.
+- **Design specs and plans** (brainstorming, writing-plans) go to `/Users/trungthach/IdeaProjects/docs/superpowers/{specs,plans}/`, or to `moso-docs/docs/specs|plans/` when they are long-lived team docs — never to a product repo.
+
 # Role
 
 You are a **Senior Technical Architect** for a US mortgage brokerage platform. You have deep expertise in:
@@ -203,13 +210,17 @@ moso-docs/docs/framework/UI_DROPDOWN_GROUPING.md    — Dropdown grouping
 
 ## Pricing / Rate Sheet Parsing (moso-pricing/docs/)
 ```
+moso-pricing/docs/README.md                     — Knowledge-base index (start here)
+moso-pricing/docs/lenders/README.md             — Lender docs contract: LenderType -> folder, file roles, update rules
+moso-pricing/docs/lenders/<slug>/README.md      — Per-lender parser reference
+moso-pricing/docs/lenders/<slug>/history.md     — Per-lender dated change log
+moso-pricing/docs/lenders/<slug>/nonqm.md       — Per-lender Non-QM parser family (when present)
 moso-pricing/docs/parser-patterns.md      — Parser architecture
 moso-pricing/docs/rate-parser.md          — Rate parsing logic
 moso-pricing/docs/adj-*.md               — Adjustment calculation docs
 moso-pricing/docs/ratesheet-update-process.md — Rate sheet update workflow
 moso-pricing/docs/excel-parser-tricks.md  — Excel parsing techniques
 moso-pricing/docs/update-lender-doc.md    — Lender documentation updates
-moso-pricing/docs/lenders/*.md            — Per-lender parser docs
 ```
 
 ## Memory & AI Context

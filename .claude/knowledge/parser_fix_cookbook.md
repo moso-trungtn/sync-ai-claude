@@ -36,7 +36,7 @@
 - **notes**: QM lender, .xlsx, sheets `WS` + `Borrower Paid MI Indications`. Rate expectations are KEY-SET only (113 product keys) — repricing never fails the test. Adj test has many `states_field_N` asserts. NewAdjustmentDetector runs INSIDE `JMACAdjustmentExcelParser.parseInputStream` and silently rewrote its remainder file (removed-only diff: lender dropped `S/E FICO >= 660/700/720` rows; `June Promotion`→`July Promotion` matched as similar). Monthly "<Month> Promotion" row is UNPARSED (lives in remainder) — JMAC promos were never modeled; flag if pricing complaints arrive. `download-ratesheet.sh JMAC --no-detect` works clean. Watch: packs/loan target/classes can go stale (ClassNotFoundException BasePdfParser, phantom PylonStagesTest compile errors) — fix with `mvn compile -Dmaven.compiler.useIncrementalCompilation=false`, not a parser issue.
 
 ## UnionHome
-- **paths**: Tables=`moso-pricing/.../shared/parser/lender/UnionHomeTables.java`, Rate=`.../server/op/parser/rate/UnionHomePdfParser.java`, Adj=`.../server/op/parser/adjustment/UnionHomeAdjustmentPdfParser.java`, Glue=`.../server/op/parser/UnionHomeParser.java`, Doc=`docs/lenders/<slug>/README.md (formerly medium-lenders.md)` (UnionHome section)
+- **paths**: Tables=`moso-pricing/.../shared/parser/lender/UnionHomeTables.java`, Rate=`.../server/op/parser/rate/UnionHomePdfParser.java`, Adj=`.../server/op/parser/adjustment/UnionHomeAdjustmentPdfParser.java`, Glue=`.../server/op/parser/UnionHomeParser.java`, Doc=`docs/lenders/<slug>/README.md (formerly docs/lenders/union-home/README.md)` (UnionHome section)
 - **tier_history**: [1]
 - **tier_0_streak**: 0
 - **last_fix**: 2026-08-11
@@ -79,7 +79,7 @@
 - **row-label prefix quirk**: matrix rows read "FHA 30/25/20 Yr AK 0.000 0.845 …" — NO preprocessing needed; PageParser.Row label match is substring-based (not line-anchored), `crawlNote("AK")` finds all 41 rows despite the prefix.
 - **empty-fields smell**: blank `field_N=` lines in adj-expectations mean a registered table crawls ZERO rows — audit these when a "missing adjustment" mismatch is reported while tests pass.
 - **2026-07-03 verify**: fix holds on 20260703 sheet (+512B reprice) — both tests green, expectations clean, refs bumped to LOAN_UNITED_20260703.
-- **notes**: QM lender, .xls Excel. Sheets: Tango / Government Standard / Advantage / Conventional Standard. Sheet includes NM which is NOT in the shared STATE constant — new state tables define their own inline row lists. `download-ratesheet.sh LoanUnited` stalls at "Date: detecting..." — use `--no-detect`. Doc lives in docs/lenders/<slug>/README.md (formerly medium-lenders.md).
+- **notes**: QM lender, .xls Excel. Sheets: Tango / Government Standard / Advantage / Conventional Standard. Sheet includes NM which is NOT in the shared STATE constant — new state tables define their own inline row lists. `download-ratesheet.sh LoanUnited` stalls at "Date: detecting..." — use `--no-detect`. Doc lives in docs/lenders/<slug>/README.md (formerly docs/lenders/loan-united/README.md).
 
 ## AmWestFunding
 - **paths**: NonQM Tables=`moso-pricing/.../shared/parser/lender/AmWestFundingNonQMTables.java`, NonQM Rate=`.../server/op/parser/rate/AmWestFundingNonQMPdfParser.java`, NonQM Adj=`.../server/op/parser/adjustment/AmWestFundingNonQMAdjustmentPdfParser.java`; QM Adj=`AmWestFundingAdjustmentPdfParser.java`; Corr Adj=`AmWestFundingCorrespondentAdjustmentPdfParser.java`
@@ -239,13 +239,13 @@
 - **notes**: No Jira ticket existed for this one (found by manually running `download-ratesheet.sh Windsor` ahead of the nightly pipeline). Verified the downloaded file is the correct QM workbook (Conv/Gov/Jumbo/LPMI sheets) before debugging, per the MOSO-16647 lesson. Left staged (not committed) in both `packs/loan` and `moso-pricing` per the no-auto-commit rule; lender doc updated to match.
 
 ## TPOGo
-- **paths**: Tables=`moso-pricing/.../shared/parser/lender/TPOGoTables.java`, Rate=`.../server/op/parser/rate/TPOGoPdfParser.java`, Adj=`.../server/op/parser/adjustment/TPOGoAdjustmentPdfParser.java`, Glue=`.../server/op/parser/TPOGoParser.java`, Doc=`docs/lenders/<slug>/README.md (formerly simple-lenders.md)` (TPOGo section)
+- **paths**: Tables=`moso-pricing/.../shared/parser/lender/TPOGoTables.java`, Rate=`.../server/op/parser/rate/TPOGoPdfParser.java`, Adj=`.../server/op/parser/adjustment/TPOGoAdjustmentPdfParser.java`, Glue=`.../server/op/parser/TPOGoParser.java`, Doc=`docs/lenders/<slug>/README.md (formerly docs/lenders/tpo-go/README.md)` (TPOGo section)
 - **tier_history**: [1]
 - **tier_0_streak**: 0
 - **last_fix**: 2026-07-29
 - **last_error**: `IndexOutOfBoundsException: Cannot parse row with label: '*500 - 579' of table: Government FICO Adjustments` — no open Jira ticket existed (all prior TPO Go tickets Done); found by proactively downloading the 7/28/2026 effective ratesheet on direct user request. Created MOSO-16909 retroactively (left In Progress).
 - **last_tier1_fix**: Lender removed the `500-579` FICO bucket row entirely from `governmentFicoAdj` (field_1) — row sequence now `600-619` → `*580-599` → `*^No FICO` with no `500-579` row between. Deleted `fico(500, 579).and(dti(0, 43)).crawlNote("*500 - 579").setNote("500 - 579")` from the rowRange in TPOGoTables.java (13→12 rows). Confirmed via `pdftotext -layout` dump of the new PDF — do NOT trust page 2 (rate table); the adjustment table is further down in the same PDF (~line 230 in the dump). After the crawl fix, remaining diffs were real repricing (`No FICO: Streamline & IRRRL` 4.0→1.5 on FHA/VA; `No FICO`/USDA col null→N/A) — accepted. Rate test also green (472 rates, 23 tables), zero blank expectation fields. (2026-07-29)
-- **notes**: PDF lender, 14 tables, hitFirst. Download with `./download-ratesheet.sh TPOGo --no-detect` (registers as `TPO_GO_YYYYMMDD`). Test methods `testTPOGo` in both suites. See simple-lenders.md for the recurring state-adj row-count drift pattern (separate from this FICO-row fix).
+- **notes**: PDF lender, 14 tables, hitFirst. Download with `./download-ratesheet.sh TPOGo --no-detect` (registers as `TPO_GO_YYYYMMDD`). Test methods `testTPOGo` in both suites. See docs/lenders/tpo-go/README.md for the recurring state-adj row-count drift pattern (separate from this FICO-row fix).
 
 ## AAALendings
 - **paths**: Tables=`moso-pricing/.../shared/parser/lender/AAALendingsTables.java`, Rate=`moso-pricing/.../server/op/parser/rate/AAALendingsPdfParser.java`, Adj=`moso-pricing/.../server/op/parser/adjustment/AAALendingsAdjustmentPdfParser.java`, Glue=`moso-pricing/.../server/op/parser/AAALendingsParser.java`
@@ -298,7 +298,7 @@
 - **tier_0_streak**: 1
 
 ## ForwardLending
-- **paths**: Tables=`moso-pricing/src/main/java/com/mosopricing/shared/parser/lender/ForwardLendingTables.java`, Rate=`.../server/op/parser/rate/ForwardLendingPdfParser.java`, Adj=`.../server/op/parser/adjustment/ForwardLendingAdjustmentPdfParser.java`, Glue=`.../server/op/parser/ForwardLendingParser.java`, Doc=`moso-pricing/docs/lenders/<slug>/README.md (formerly medium-lenders.md)`
+- **paths**: Tables=`moso-pricing/src/main/java/com/mosopricing/shared/parser/lender/ForwardLendingTables.java`, Rate=`.../server/op/parser/rate/ForwardLendingPdfParser.java`, Adj=`.../server/op/parser/adjustment/ForwardLendingAdjustmentPdfParser.java`, Glue=`.../server/op/parser/ForwardLendingParser.java`, Doc=`moso-pricing/docs/lenders/<slug>/README.md (formerly docs/lenders/forward-lending/README.md)`
 - **tier_history**: [1, 0] — 08/31 MOSO-17122 (Yên: rate `.table()` codes AltA101→Alt101 etc.), 09/02 MOSO-17137
 - **tier_0_streak**: 1
 - **last_fix**: 2026-09-02 (MOSO-17137)

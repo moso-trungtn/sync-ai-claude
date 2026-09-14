@@ -1,5 +1,7 @@
 # UNDERSTAND MOSO - COMPLETE CODEBASE REFERENCE
 
+> **House rule — docs and working files.** Per-task working files (specs, plans, test cases/results, screenshots, review notes) go ONLY to `/Users/trungthach/IdeaProjects/docs/changes/<KEY>/` (workspace, outside git) — never inside moso, moso-pricing, packs, base or moso-configuration, and never as `docs/changes/`, `docs/superpowers/` or `MOSO-xxxxx/` folders in a repo. Lender parser knowledge lives in `moso-pricing/docs/lenders/<slug>/` (`README.md` reference, `history.md` dated changes, `nonqm.md` Non-QM); after any parser change update that folder in the same commit. Contract: `moso-pricing/docs/lenders/README.md`.
+
 **Last Updated:** 2026-03-17
 **Project Versions:** base 3.55.0-SNAPSHOT | moso 3.55.0-SNAPSHOT | moso-pricing 3.19.0-SNAPSHOT | moso-configuration 3.0.0-SNAPSHOT | packs 3.55.0-SNAPSHOT
 

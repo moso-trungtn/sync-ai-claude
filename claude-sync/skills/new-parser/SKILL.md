@@ -7,9 +7,35 @@ allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Agent, mcp__claude_ai_Atlass
 
 # New Parser Agent Team — Smart Orchestrator
 
+> **House rule — docs and working files.** Per-task working files (specs, plans, test cases/results, screenshots, review notes) go ONLY to `/Users/trungthach/IdeaProjects/docs/changes/<KEY>/` (workspace, outside git) — never inside moso, moso-pricing, packs, base or moso-configuration, and never as `docs/changes/`, `docs/superpowers/` or `MOSO-xxxxx/` folders in a repo. Lender parser knowledge lives in `moso-pricing/docs/lenders/<slug>/` (`README.md` reference, `history.md` dated changes, `nonqm.md` Non-QM); after any parser change update that folder in the same commit. Contract: `moso-pricing/docs/lenders/README.md`.
+
 You are a **smart orchestrator** that builds new lender parsers. You learn from every build, understand pricing domain patterns, find similar lenders as templates, and prevent known mistakes.
 
 Pipeline flow: **Knowledge Load → BA (domain-aware) → User Confirm → Architect (template-guided beads) → Dev (surgeon + pitfall prevention) → QC → Verify → Learn → Finalize**
+
+---
+
+## Scope — what this skill assumes, and what it doesn't do
+
+This skill starts **after** a Jira ticket already has rates, adjustments, and the eligibility
+matrix on it (built by `/parser-task-builder`, or written by hand). It does zero lender
+registration, zero ratesheet/matrix acquisition, and zero ticket creation — if any of those
+are still open, stop and run `/parser-task-builder` first.
+
+**For a brand-new lender specifically**, one more prerequisite lives entirely outside this
+skill and outside `/parser-task-builder`: the lender must be a registered `LenderType` enum
+constant (`packs/quote/src/main/java/com/mvu/quote/shared/typekey/LenderType.java`) before
+the Adjustments/Rate buttons and `has_rate_qm`/`has_rate_non_qm` toggles on its Lender record
+do anything. That's a **developer-only, code + deploy** step — a new constant appended to the
+**bottom** of the enum only (ordinals are persisted in the DB; inserting mid-list previously
+misrouted a live lender in production — MOSO-16335, NewRez resolved as AmWest). If the BA
+research phase (Step 1) can't find the lender in that file, flag it and stop rather than
+implementing against an enum entry that doesn't exist yet.
+
+**This skill ends at a local commit.** Finalize (Step 8) never pushes, never requests a
+staging deploy, and never verifies staging is running the fix — that's a manual step you do
+yourself after review: push, then deploy staging, then run `/test-task` to verify the
+deployed build (not the local one) actually prices correctly.
 
 ---
 
@@ -18,6 +44,7 @@ Pipeline flow: **Knowledge Load → BA (domain-aware) → User Confirm → Archi
 ```
 CLOUD_ID = "5858106a-50e6-442e-a751-14c0f4243e87"
 PROJECT_ROOT = "/Users/trungthach/IdeaProjects"
+MOSO_WORKSPACE = "/Users/trungthach/IdeaProjects"   # per-task working files: $MOSO_WORKSPACE/docs/changes/<JIRA_KEY>/ — never inside a repo
 MOSO_PRICING = "/Users/trungthach/IdeaProjects/moso-pricing"
 PACKS_LOAN = "/Users/trungthach/IdeaProjects/packs/loan"
 MOSO_MEMORY_DIR = "/Users/trungthach/.claude/projects/-Users-trungthach-IdeaProjects/memory"
@@ -354,7 +381,7 @@ Read the existing parser files. Compare against similar lender's structure.
 
 ## Step 4: Write specs.md
 
-Create `docs/changes/<JIRA_KEY>/specs.md` with:
+Create `$MOSO_WORKSPACE/docs/changes/<JIRA_KEY>/specs.md` with:
 - Problem statement
 - Lender info
 - **Domain expectations**: what tables/products are expected for this loan type
@@ -437,11 +464,11 @@ emit_pipeline_phase "architect"
 | **Bead 2** | `[rate]` | Rate Parser — products from BA analysis |
 | **Bead 3** | `[adj]` | Adjustment Parser — section keywords from ratesheet |
 | **Bead 4** | `[test]` | Test files — expected counts |
-| **Bead 5** | `[docs]` | Documentation |
+| **Bead 5** | `[docs]` | Documentation — `moso-pricing/docs/lenders/<slug>/README.md` + `history.md` entry (copy `docs/lenders/_template/` for a new lender) |
 
 ### 3.3 Write beads_plan.md
 
-Create `docs/changes/<JIRA_KEY>/beads_plan.md`:
+Create `$MOSO_WORKSPACE/docs/changes/<JIRA_KEY>/beads_plan.md`:
 
 Include for each bead:
 - Exact file path (from lender_context)
@@ -729,12 +756,19 @@ emit_pipeline_done
 <list>
 
 ### Artifacts
-docs/changes/<JIRA_KEY>/
+$MOSO_WORKSPACE/docs/changes/<JIRA_KEY>/
   - specs.md
   - beads_plan.md
 
 ### Ready for commit
 All tests passing. Run `/commit` when ready.
+
+### After commit (manual — not part of this skill)
+1. Review the diff yourself.
+2. Push.
+3. Request/perform a staging deploy — nothing in this pipeline does this for you.
+4. Run `/test-task <JIRA_KEY>` against the DEPLOYED staging build (not local) to verify
+   the fix actually reached staging before calling this done.
 ```
 
 ---
@@ -760,3 +794,5 @@ All tests passing. Run `/commit` when ready.
 9. **Targeted Agents**: Use parser-ba, parser-dev, parser-qc. Pass pre-resolved paths with "do NOT search".
 
 10. **Verify Before Finalize**: Dev → QC → Verify → Learn → Finalize. Never skip verify or learn.
+
+11. **Working files stay in the workspace**: everything under `$MOSO_WORKSPACE/docs/changes/<JIRA_KEY>/` is scratch; never create it under a repo checkout and never `git add` it.

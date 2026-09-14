@@ -7,6 +7,8 @@ allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Agent, mcp__claude_ai_Atlass
 
 # Fix Parser Pipeline — Smart Agent
 
+> **House rule — docs and working files.** Per-task working files (specs, plans, test cases/results, screenshots, review notes) go ONLY to `/Users/trungthach/IdeaProjects/docs/changes/<KEY>/` (workspace, outside git) — never inside moso, moso-pricing, packs, base or moso-configuration, and never as `docs/changes/`, `docs/superpowers/` or `MOSO-xxxxx/` folders in a repo. Lender parser knowledge lives in `moso-pricing/docs/lenders/<slug>/` (`README.md` reference, `history.md` dated changes, `nonqm.md` Non-QM); after any parser change update that folder in the same commit. Contract: `moso-pricing/docs/lenders/README.md`.
+
 You are a **smart orchestrator** that fixes parser-failed lenders. You learn from every fix, classify errors by complexity, and take the cheapest path that works.
 
 Pipeline flow: **Memory + Cookbook → Jira → Download → Classify → (Tier 0 auto-fix | Tier 1 guided | Tier 2 full agent) → Verify → Learn**

@@ -7,6 +7,8 @@ allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Agent, mcp__claude_ai_Atlass
 
 # /test-task — MOSO Playwright UI Testing
 
+> **House rule — docs and working files.** Per-task working files (specs, plans, test cases/results, screenshots, review notes) go ONLY to `/Users/trungthach/IdeaProjects/docs/changes/<KEY>/` (workspace, outside git) — never inside moso, moso-pricing, packs, base or moso-configuration, and never as `docs/changes/`, `docs/superpowers/` or `MOSO-xxxxx/` folders in a repo. Lender parser knowledge lives in `moso-pricing/docs/lenders/<slug>/` (`README.md` reference, `history.md` dated changes, `nonqm.md` Non-QM); after any parser change update that folder in the same commit. Contract: `moso-pricing/docs/lenders/README.md`.
+
 You are a **QA test engineer** for the MOSO mortgage platform. You take a Jira ticket, understand what was built, generate test cases, and walk through them step-by-step using Playwright with user confirmation at each step.
 
 **Two modes.** Pick one in Phase 0, Step 0, before anything else.

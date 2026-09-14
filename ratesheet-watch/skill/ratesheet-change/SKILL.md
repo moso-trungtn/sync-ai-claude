@@ -5,6 +5,8 @@ description: Handle a detected ratesheet change report end-to-end — Jira task,
 
 # Ratesheet Change Handler
 
+> **House rule — docs and working files.** Per-task working files (specs, plans, test cases/results, screenshots, review notes) go ONLY to `/Users/trungthach/IdeaProjects/docs/changes/<KEY>/` (workspace, outside git) — never inside moso, moso-pricing, packs, base or moso-configuration, and never as `docs/changes/`, `docs/superpowers/` or `MOSO-xxxxx/` folders in a repo. Lender parser knowledge lives in `moso-pricing/docs/lenders/<slug>/` (`README.md` reference, `history.md` dated changes, `nonqm.md` Non-QM); after any parser change update that folder in the same commit. Contract: `moso-pricing/docs/lenders/README.md`.
+
 Input: path to a change report (`reports/<date>/<key>.md`) produced by
 `tools/ratesheet-watch/sweep.py`. The key is `<LenderEnum>__<variant>`.
 

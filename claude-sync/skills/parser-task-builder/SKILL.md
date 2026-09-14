@@ -1,25 +1,46 @@
 ---
 name: parser-task-builder
-description: Build OR update Jira parser tickets for a lender, AND add a QA test case checklist as a comment on each sub-task so the parser developer and QA share one source of truth. CREATE mode (default): auto-reads ratesheet + matrix screenshots + guideline PDF, then asks only for what's not in any file (provider account ID, email sender/subject, sub-task split), and produces an Epic + sub-tasks. UPDATE mode (when argument is a Jira key like MOSO-12075): fetches the existing task, detects manual edits, shows section-level diff, asks user accept/reject/edit per section, and updates body + attachments case-by-case. Pre-fills the full matrix/validation table and shows it for user review — edit any row, accept all, or re-extract from a different source. For QM and Non-QM creates an Epic and sub-tasks with bodies complete enough for /new-parser to consume directly: rates, adjustments, and the matrix as a fully typed-out 14-field table (citizenship, occupancy, loan term, doc type, loan amount, property type, FICO, DTI, cash reserved, mortgage lates, prepayment penalty, interest only). For Correspondent creates a single Task. Inlines screenshots into the right sections via ADF media nodes.
-argument-hint: [ratesheet path or folder | MOSO-<key> to update existing]
+description: One skill covering the full pre-implementation pipeline for a lender parser — classify + extract a ratesheet/matrix/guideline (the old extract-ratesheet job, now built in and callable standalone), cross-check detected programs against what Moso already models, surface conflicts and "new program type" blockers, then build OR update the Jira Epic + sub-tasks. CREATE mode (default): auto-reads ratesheet + matrix screenshots + guideline PDF, renders a scannable extraction report, gates each program in/out of v1 scope, then asks only for what's not in any file (provider account ID, email sender/subject, sub-task split) before filing native-ADF tickets (/trung-jira Mode 1 style — panel breadcrumb, Specification tables, full typed 14-field matrix, Acceptance Criteria, auto-assigned to Trung) with a QA test-case checklist comment on every sub-task. EXTRACT-ONLY mode: run just the read/classify/extract/report step and stop — no Jira writes — for when you only need the report. UPDATE mode (argument is an existing MOSO-<key>): re-extracts from new files, diffs section-by-section against the live ticket, detects and protects manual edits, updates body + attachments case-by-case. For Correspondent creates a single Task. Inlines screenshots as real embedded images via a 2-pass ADF create-then-edit flow.
+argument-hint: [ratesheet path or folder | --extract-only <path> | MOSO-<key> to update existing]
 allowed-tools: Bash, Read, Write, Glob, Grep, AskUserQuestion, WebSearch, WebFetch, mcp__d4873f66-6c13-4695-be2b-dbd414d76d1d__createJiraIssue, mcp__d4873f66-6c13-4695-be2b-dbd414d76d1d__getJiraIssue, mcp__d4873f66-6c13-4695-be2b-dbd414d76d1d__editJiraIssue, mcp__d4873f66-6c13-4695-be2b-dbd414d76d1d__addCommentToJiraIssue
 ---
 
-# /parser-task-builder — Ratesheet → Jira Epic + Complete Sub-tasks
+# /parser-task-builder — Ratesheet/Guideline → Extraction Report → Jira Epic + Complete Sub-tasks
 
-You are a **task builder** for lender parser work. You produce Jira tickets that downstream `/new-parser` can consume **end-to-end** — meaning each sub-task body contains everything a parser developer (or `/new-parser`) needs to know: rates, adjustments, and a fully-typed matrix.
+> **House rule — docs and working files.** Per-task working files (specs, plans, test cases/results, screenshots, review notes) go ONLY to `/Users/trungthach/IdeaProjects/docs/changes/<KEY>/` (workspace, outside git) — never inside moso, moso-pricing, packs, base or moso-configuration, and never as `docs/changes/`, `docs/superpowers/` or `MOSO-xxxxx/` folders in a repo. Lender parser knowledge lives in `moso-pricing/docs/lenders/<slug>/` (`README.md` reference, `history.md` dated changes, `nonqm.md` Non-QM); after any parser change update that folder in the same commit. Contract: `moso-pricing/docs/lenders/README.md`.
+
+You are the **one skill** that takes a lender's raw files (ratesheet, matrix screenshots, guideline PDF) all the way to a Jira Epic + sub-tasks that `/new-parser` can consume end-to-end. There is no separate "extract-ratesheet" skill anymore — reading and extracting is Step 1.5 of this pipeline, and you can stop right after that step (`--extract-only`) when the user just wants the report.
+
+> **History note:** this file used to exist as two different, disagreeing skills — a self-contained markdown-body version and a "consumes another skill's payload" ADF-body version — plus a separately-invoked `extract-ratesheet` skill that one of them depended on and the other didn't. They produced tickets in two different Jira title/body conventions (compare `MOSO-16495` "[Parse Non-QM] Community Wholesale Lending" vs `MOSO-17041` "[Parser > theLender] Set up parser & get rate sheet" — both real production tickets, from two different skill versions). This file merges them into one pipeline: extraction is now always the same code path whether you stop after it (`--extract-only`) or continue straight into ticket filing.
 
 ## The core principle (read this carefully)
 
-A ratesheet alone is **not enough** for `/new-parser` to build a parser. It needs:
+A ratesheet alone is **not enough** for `/new-parser` to build a parser. It needs two stacked layers:
 
-1. **Rates** — products, lock periods, modes (mostly on the ratesheet)
-2. **Adjustments** — LLPA tables (mostly on the ratesheet)
-3. **Matrix / eligibility / validation rules** — min FICO, max LTV, DTI, occupancy, property type, citizenship, cash reserves, prepayment penalty, interest-only rules, etc. **These are almost never on the ratesheet** — they live in the lender's product guideline PDF on their portal/website.
+1. **Rates + Adjustments** — products, lock periods, modes, LLPA tables. Mostly on the ratesheet.
+2. **Eligibility matrix + Validations** — min FICO, max LTV, DTI, occupancy, property type, citizenship, cash reserves, prepayment penalty, interest-only rules, etc. **These are almost never on the ratesheet** — they live in the lender's product guideline PDF, a matrix screenshot, or the lender's portal. Two flavors, and the ticket must say which one applies to every field:
+   - **System validations** = Moso's shipped defaults across the 14 fields below. Jira shorthand: the literal bullet `Use system validations`.
+   - **Program validations** = an override for this specific program (e.g. "Primary residence only", "Min loan $125k", "Max LTV 80% / Min FICO 680 Purchase").
 
-The BA's job (and this skill's job) is to combine ratesheet content + portal/guideline content into one structured sub-task. When the matrix isn't on the ratesheet, **fetch it from the web** — search for `<Lender> <Program> product guideline matrix`, fetch the PDF, and extract the eligibility fields. Reference Claude Code's pattern: "the parser's getPDFGuidelineUrl returns null, so guidelines aren't stored locally. Let me pull NewRez's public Smart Vest matrix from the web."
+Your job is to combine ratesheet content + matrix/guideline content into one structured sub-task, typing out anything you can't inline as a screenshot. **Never leave a sub-task body with empty program headers, an empty matrix row, or "TODO: fill in matrix"** — that breaks `/new-parser`.
 
-If you cannot inline the matrix image, **type the matrix out as a markdown table**. Never leave a sub-task body with empty program headers or "TODO: fill in matrix" — that breaks `/new-parser`.
+---
+
+## Hard rules
+
+1. **ADF as a native JSON object, never stringified.** Pass `description: { "version": 1, "type": "doc", "content": [...] }` to `createJiraIssue` — not a JSON string. Stringified ADF renders as raw JSON text in Jira.
+2. **English in Jira, bilingual in chat.** Translate any Vietnamese inputs to natural English before building the payload.
+3. **Auto-assign Trung** on every `createJiraIssue` call: `assignee_account_id: "712020:c86c8eaf-7415-4e7d-8afe-59fd529b6fac"`.
+4. **User/QA perspective in the body.** A QA engineer who has never seen the source code should understand the task. No `<Lender>Tables.java`, no `RangeTableInfo`, no `ValidateCalculator`. Use plain English: "FANNIE MAE eligibility matrix", "LLPA adjustment", "system validations".
+5. **`panel[info]` is breadcrumb-only.** One short line, e.g. `"Parser > AmWest Funding > Conventional and Government"`. Never put Background, Environment, or notes inside it.
+6. **Read first, ask second.** Step 1.5 auto-extracts from every file before any matrix question is asked. Never ask the user for a value that's already visible in one of their files.
+7. **Classify before extracting.** A guideline PDF and a ratesheet need different read strategies — see Step 1.5.
+8. **Cross-check vocabulary, don't invent program names.** `moso-docs/PARSER_PRIMER.md` is canonical. A program Moso doesn't model yet is a blocker, not a typo to paper over — see Step 1.7.
+9. **Surface conflicts and low-confidence fields. Never silently resolve or silently drop them.**
+10. **Sub-task body must be complete.** Rates described or attached, adjustments described or attached, the full 14-field matrix TYPED OUT (not just a one-line summary — a QA engineer and `/new-parser` both need the complete table). Empty matrix = bug.
+11. **One question at a time.** Never batch. Never show a wall of fields. `AskUserQuestion` per field, pre-filled from extraction where possible.
+12. **Never auto-chain into `/new-parser`.** Print URLs and stop — the user controls that step.
+13. **Existing-parser AND lender-registration checks are mandatory** (Step 1) — run every time, before anything else.
 
 ---
 
@@ -27,396 +48,281 @@ If you cannot inline the matrix image, **type the matrix out as a markdown table
 
 | Workflow | Output |
 |---|---|
+| **Extract-only** | A scannable extraction report — no Jira writes |
 | **QM new parser** | 1 Epic + N sub-tasks (one per program group: Conv+Gov, Jumbo, …) |
 | **Non-QM new parser** | 1 Epic + N sub-tasks (one per program: Full Doc, Alt Doc, DSCR, No Ratio, …) |
 | **Correspondent** | 1 Task (no Epic, no sub-tasks) |
+| **Update** (arg = `MOSO-<key>`) | Same ticket, refreshed body/attachments, manual edits protected |
 
-Real reference samples:
+Real reference tickets (mixed conventions from before this merge — new tickets should all look like the QM/Non-QM row above, not the `[Parser > ...]` variant):
 - **QM**: [MOSO-12073](https://mosoteam.atlassian.net/browse/MOSO-12073) → [MOSO-12075](https://mosoteam.atlassian.net/browse/MOSO-12075) (Conv+Gov), [MOSO-12076](https://mosoteam.atlassian.net/browse/MOSO-12076) (Jumbo)
-- **Non-QM**: [MOSO-12677](https://mosoteam.atlassian.net/browse/MOSO-12677) → [MOSO-12799](https://mosoteam.atlassian.net/browse/MOSO-12799) (Full Doc), [MOSO-12801](https://mosoteam.atlassian.net/browse/MOSO-12801) (Alt Doc), [MOSO-12802](https://mosoteam.atlassian.net/browse/MOSO-12802) (DSCR), [MOSO-12887](https://mosoteam.atlassian.net/browse/MOSO-12887) (DSCR 5-8 unit), [MOSO-12888](https://mosoteam.atlassian.net/browse/MOSO-12888) (No Ratio)
+- **Non-QM**: [MOSO-16495](https://mosoteam.atlassian.net/browse/MOSO-16495) (Community Wholesale Lending Epic) → [MOSO-16496](https://mosoteam.atlassian.net/browse/MOSO-16496)/[16497](https://mosoteam.atlassian.net/browse/MOSO-16497)/[16498](https://mosoteam.atlassian.net/browse/MOSO-16498)
 - **Correspondent**: [MOSO-14984](https://mosoteam.atlassian.net/browse/MOSO-14984)
 
 ---
 
-## Environment
+## Environment & Constants
 
 ```
-CLOUD_ID    = "5858106a-50e6-442e-a751-14c0f4243e87"
-PROJECT_KEY = "MOSO"
-JIRA_BASE   = "https://mosoteam.atlassian.net"
+CLOUD_ID          = "mosoteam.atlassian.net"
+PROJECT_KEY       = "MOSO"
+JIRA_BASE         = "https://mosoteam.atlassian.net"
+TRUNG_ACCOUNT_ID  = "712020:c86c8eaf-7415-4e7d-8afe-59fd529b6fac"
+
+MOSO_REPO_ROOT    = "${MOSO_REPO_ROOT:-$HOME/IdeaProjects}"
+PACKS_LOAN_DIR    = "$MOSO_REPO_ROOT/packs/loan"
+DOCS_DIR          = "$MOSO_REPO_ROOT/moso-docs"
+PARSER_PRIMER     = "$DOCS_DIR/PARSER_PRIMER.md"
+LENDER_TYPE_JAVA  = "$MOSO_REPO_ROOT/packs/quote/src/main/java/com/mvu/quote/shared/typekey/LenderType.java"
+LENDERS_DOCS      = "$MOSO_REPO_ROOT/moso-pricing/docs/lenders"
+# one folder per lender: $LENDERS_DOCS/<slug>/README.md (+ history.md, nonqm.md); index: $LENDERS_DOCS/README.md
 ```
 
 ---
 
-## Templates (match these exactly)
+## Mode detection (STEP 0)
 
-### Template Epic-A — QM new parser
+Check the argument first:
 
-- **Title**: `[Parse QM] <Lender Name>`
-- **Type**: `Epic`
-- **Body**:
-  ```markdown
-  # **Get rate sheet**
+- Starts with `--extract-only` → **EXTRACT-ONLY MODE**. Run Steps 1–1.9 only, then stop. No Jira writes ever happen in this mode.
+- Matches `MOSO-\d+` (e.g. `MOSO-12075`) → **UPDATE MODE**. Jump to "UPDATE MODE pipeline" near the bottom.
+- Otherwise (a path, a folder, or empty) → **CREATE MODE** (default). Runs the full pipeline through ticket creation, with an offer to stop after the report if the user prefers (Step 1.9).
 
-  * **Apply for lender:** <Lender Full Name>(<provider_account_id>)
-  * **Rate sheet attached to email from sender:** <email_address> (**<Sender Name>**)
-  * **Email subject:** <email_subject>
-  * **Portal:** <portal_url>     ← clickable link for future updates / cross-reference
-  ```
+**If the user just wants a quick read** ("just extract this", "what's in this ratesheet", "đọc ratesheet này thôi") without typing a flag, treat it the same as `--extract-only` — don't force them to know the flag exists.
 
-### Template Epic-B — Non-QM new parser
+### Resolving input files
 
-Same body as Epic-A but title prefix is `[Parse Non-QM]`.
+The user can hand you files in any of these ways, checked in this order:
 
-### Template Sub-QM — QM sub-task body
+1. **Attached to the current chat (drag-and-drop / file upload).** Cowork lands uploads at `$HOME/Library/Application Support/Claude/local-agent-mode-sessions/<session-id>/<thread-id>/local_*/uploads/<filename>`. Collect **every** recent `*.pdf|*.xlsx|*.xlsm|*.xls` from that directory (mtime within the last ~30 min), not just the newest.
+2. **A single file path argument** — single-input mode.
+3. **A folder argument** — walk `*.pdf|*.xlsx|*.xlsm|*.xls` at the top level; subfolders are per-program screenshot folders (see Folder aliases at the bottom), don't treat them as more ratesheet/guideline inputs.
+4. **A comma-separated path list** — split, validate each file exists.
+5. **Nothing found** — this is the **no-ratesheet-yet** case, not an error. Ask which of these applies:
 
-- **Title**: `[QM] <Lender Name> - Parse <group> programs`
-- **Type**: `Task`, **Parent**: Epic key
-- **Structure** (per-program sections, each with a brief written description before screenshots):
-  ```markdown
-  ### ✓ **Use rate of <N> days**
+   ```
+   I don't see a ratesheet/guideline yet. Which is it?
 
-  **Rate grid structure across programs:**
-  * Products: <e.g. "30-year Fixed, 15-year Fixed, 5/6 ARM">
-  * Lock periods: <e.g. "15-day, 30-day, 45-day">
-  * Categories: <e.g. "Conforming + High Balance">
-  * Rate range: <e.g. "6.000% – 8.000% in 0.125% steps">
+     a) It's in an email — paste the email text or forward it, and I'll pull
+        the attachment path once you save it locally
+     b) It should be downloadable — tell me the lender name and I'll check
+        packs/loan/download-ratesheet.sh and the ratesheet-watch GCS bucket
+     c) Neither — request it: I'll draft a short ask (to the lender AE, or
+        via the "Upload Ratesheet" button on their Loan Factory Lender
+        Management record if they're already a registered lender) for you
+        to send, then come back here once you have the file
+     d) I have it, wrong path — let me re-point you
+   ```
 
-  # **<PROGRAM 1 NAME>** (e.g. FANNIE MAE)
+   For (b), try `cd "$PACKS_LOAN_DIR" && ./download-ratesheet.sh "<Lender>" --no-detect` (pass `--no-detect`; the built-in date detector is flaky — confirm the effective date yourself from the sheet). For (c), this skill does not send the request itself (no email-send tool in its allowed-tools) — hand the user a short draft message and stop; re-invoke once the file exists locally. **Do not silently proceed as if a file exists — this is a hard stop, not a soft warning.**
 
-  * Use system validations   ← or custom validation note
-  * Min loan amount = $<N>k  ← only if non-default
+Build `INPUTS[]`, each entry shaped `{path, filename, size_bytes, ext, kind: null, meta: {}, programs_in_file: [], tables_classified: [], product_codes: []}`. `SCREENSHOT_ROOT` = the parent folder if a folder was given, else `null`.
 
-  <<<SCREENSHOT:fannie-mae:rates.png>>>
+**Echo what you resolved** before doing any work:
+```
+✓ Reading 3 files:
+    1. amwest_ratesheet_0521.xlsx          (1.2 MB, modified 5 min ago)
+    2. amwest_conforming_guideline.pdf     (945 KB, modified 5 min ago)
+    3. amwest_jumbo_guideline.pdf          (612 KB, modified 5 min ago)
+  Source: drag-and-drop upload
+```
 
-  * **High Balance**          ← optional sub-section if program has high-balance variant
+**CREATE MODE opening checklist** (only shown once files are resolved or in the same breath as asking for them) — the 3 file inputs above plus 5 info fields you'll ask for one at a time once extraction is done:
 
-  <<<SCREENSHOT:fannie-mae:high-balance.png>>>
+```
+Have these ready (files now, info as I ask for it):
 
-  # **<PROGRAM 2 NAME>** (e.g. FREDDIE MAC)
-  ...
+FILES:
+  1. Ratesheet         (PDF / XLSX / XLSM / XLS — rate grid + LLPAs)
+  2. Matrix             (screenshots in matrix/, OR a guideline.pdf)
+  3. Guideline PDF       (fallback for matrix if matrix/ is missing)
 
-  # **Adjustment of <P1> && <P2>**  ← when programs share adjustments
-  ...
-  * **Lender paid**             ← optional sub-section
-
-  # **<PROGRAM 3 NAME>**         ← e.g. ALT AGENCY Second Home/ Investment
-  * **Adjustment**
-  * **Lender paid**
-  * **Matrix**
-    * Min loan amount = $<N>k
-
-  # **<PROGRAM 4 NAME>**         ← e.g. FHA
-  * **Adjustment**
-  * **Matrix**
-
-  # **<PROGRAM 5 NAME>**         ← e.g. VA & USDA
-  * **Adjustment**
-  * **Matrix**
-    * USDA: use system validations
-
-  # **FHA Streamline & VA IRRRL** ← optional, if streamline programs supported
-  * **Adjustment**
-  * **Matrix**
-  ```
-
-  Common program names: `FANNIE MAE`, `FREDDIE MAC`, `Adjustment of FNMA && FHLMC`, `ALT AGENCY Second Home/ Investment`, `FHA`, `VA & USDA`, `FHA Streamline & VA IRRRL`, `Jumbo`, `Jumbo Pro`, `Jumbo Elite`, `Jumbo Preferred`.
-
-### Template Sub-NonQM — Non-QM sub-task body
-
-- **Title**: `[Non-QM] <Lender Name> - Parse <program> program`
-- **Type**: `Task`, **Parent**: Epic key
-- **Structure** (three top-level sections; each section starts with a WRITTEN description of what's in it, followed by the inlined screenshot, followed by typed tables where applicable):
-  ```markdown
-  # **Rate sheet (Use rate <N> days)**
-
-  **What to parse:**
-  * Products: <e.g. "30-year Fixed, 30-year Fixed IO, 40-year Fixed, 40-year Fixed IO, 5/6 ARM">
-  * Lock periods: <e.g. "30-day only">
-  * Rate range: <e.g. "6.000% – 8.500% in 0.125% steps">
-  * Categories: <e.g. "Single program — no Conforming/HB split">
-  * Program variants: <e.g. "DSCR, DSCR Elite — separate rate grids">
-
-  <<<SCREENSHOT:rate-sheet:full-doc-rates.png>>>
-
-  <Optional: lender credit cap table — markdown 2-column>
-  |  |  |
-  | --- | --- |
-  | <condition image / text> | <Max lender credit rule, e.g. "**Occupancy** = Owner occupied → Max lender credit = -2%"> |
-  | <condition> | <rule for PP Term variants, etc.> |
-
-  # **Adjustment**
-
-  **Adjustment tables to parse:**
-  1. <Table name, e.g. "FICO/LTV Purchase"> — rows: <e.g. "780+ / 760-779 / 740-759 / ... / <660">, cols: <e.g. "LTV ≤60 / 60.01-70 / ... / 95.01-97">
-  2. <Table 2 name, e.g. "FICO/LTV Refinance Rate-Term"> — rows: ..., cols: ...
-  3. <Table 3 name, e.g. "Misc Adjustments"> — single-value rows: ARM, Condo, Investment, Cash-Out, ...
-
-  <<<SCREENSHOT:adjustment:adj-fico-ltv-purchase.png>>>
-  <<<SCREENSHOT:adjustment:adj-fico-ltv-refi.png>>>
-  <<<SCREENSHOT:adjustment:adj-misc.png>>>
-
-  <Optional: notes table mapping ratesheet values to system values, e.g. DSCR range translations>
-  |  |  |
-  | --- | --- |
-  | <ratesheet col label> | <system equivalent, e.g. "DSCR < 0.80 → DSCR < 0.75"> |
-
-  # **Matrix && Validation**
-
-  (Optional matrix screenshot)
-
-  <Optional abbreviation/notes bullets, e.g.>
-  * P/RT : Purchase/ Refinance Rate-term
-  * C/O : Cash-out
-  * Foreign National (only eligible for Second Home/ Investment)
-
-  |  |  |
-  | --- | --- |
-  | **Citizenship** | US Citizen / Permanent Resident Alien / Non-Permanent Resident Alien / Foreign National |
-  | **Occupancy** | Primary / Second Home / Investment |
-  | **Loan term** | 30 years fixed / 30 years fixed IO / 40 years fixed / 40 years fixed IO (Use rate sheet of 30 years) / 5/6 ARM |
-  | **Document type** | <program-specific, e.g. "Full doc 12 months / Full doc 24 months", "DSCR", "Bank Statement 12/24 months"> |
-  | **Min-Max loan amount** | Min: $<X>K  Max: $<Y>M |
-  | **Property type** | <list with any LTV caveats, e.g. "Single Family Residence / Townhouse/PUD / Duplex/Triplex/Fourplex / Warrantable Condos / Non-Warrantable Condos / 2-4 Unit (Max LTV = 80%)"> |
-  | **Min FICO** | <N> (or per-condition rules, e.g. "660 (exclude Foreign National)") |
-  | **DTI** | Max DTI = <N>% |
-  | **DSCR** | <range list — only for DSCR programs> |
-  | **Cash Reserved** | Loan amount ≤ $1M → 3 months / $1,000,001 - $2,000,000 → 6 months / Loan amount > $2M → 9 months / Foreign National: 12 months |
-  | **Mortgage lates** | <rule, e.g. "No mortgage 1x30x12"> |
-  | **Prepayment Penalty Term** | <rule, e.g. "No PPP / 12/24/36 months PP" — only show for Investment-eligible programs> |
-  | **Interest Only** | <rule, e.g. "If Interest Only = Yes: Purchase loans : min FICO = 740, max LTV = 80%; Refinance loans: max LTV = 75%"> |
-  ```
-
-  **Critical:** for Non-QM the Matrix && Validation TABLE must be fully filled in. Every row needs a value. Use "(none)" or "N/A" only if the rule truly doesn't apply.
-
-### Template Correspondent — single Task
-
-- **Title**: `[QM] <Lender Name> - Parse Correspondent's rates`
-- **Type**: `Task`, no parent
-- **Body**:
-  ```markdown
-  ## **Rate sheet**
-
-  ## **Notes**
-
-  1. Please parse rates for <Lender Name> - Correspondent (<correspondent_label>) with ID = <provider_account_id>
-  2. <Lender Name> uses the same rate sheet for both Wholesale and Correspondent.
-  3. Please parse these programs and conditions of <Lender Name> Wholesale for <Lender Name> Correspondent.
-
-  <numbered list of programs>
-
-  ---
-
-  \[Ticket: <source_ticket_id>\]
-  ```
+INFO (I'll ask once I've read what's in the files):
+  4. Portal URL          e.g. https://corr.lendername.com/login
+  5. Lender ID            10-11 digit provider account ID
+  6. Lender full name     as on the email/portal
+  7. Email sender         name + address from the ratesheet email
+  8. Email subject
+```
 
 ---
 
-## Folder convention (for screenshot pickup)
+## STEP 1 — Identify lender + registration check
 
-```
-<lender>-jira/
-├── ratesheet.pdf                 (or .xlsx/.xlsm/.xls)
-├── guideline.pdf                 (optional — product matrix PDF if user already has it)
-├── rate-sheet/                   screenshots of rate grids
-│   └── *.png
-├── adjustment/                   screenshots of LLPA / adjustment tables
-│   └── *.png
-├── matrix/                       screenshots of the eligibility matrix
-│   └── *.png
-└── <per-program subfolders>/     (QM only — fannie-mae/, freddie-mac/, fha/, etc.)
-```
+Extract a candidate lender name from filenames (strip dates and common suffixes: `Ratesheet`, `Wholesale`, `Correspondent`, `NonQM`, `Guideline`, `Matrix`, `Conforming`, `Conventional`, `FHA`, `VA`, `Jumbo`), corroborate against the first ~500 chars of each file's text. Vote across files if there are several.
 
-Folder-name aliases for QM programs:
-- `fannie-mae | fnma | fannie` → "FANNIE MAE"
-- `freddie-mac | fhlmc | freddie` → "FREDDIE MAC"
-- `fnma-fhlmc-adjustment | agency-adjustment` → "Adjustment of FNMA && FHLMC"
-- `alt-agency | alt-agency-second-home-investment` → "ALT AGENCY Second Home/ Investment"
-- `fha`, `va`, `usda`, `va-usda` → as named
-- `fha-streamline-va-irrrl | streamline-irrrl` → "FHA Streamline & VA IRRRL"
-- `jumbo`, `jumbo-pro`, `jumbo-elite`, `jumbo-preferred` → as named
-
----
-
-## Pipeline
-
-```
-0. Resolve input → 1. Identify lender → 2. Auto-detect type
-  │
-  ├─ if Correspondent → 8. Correspondent Task → 9. Report
-  │
-  └─ if QM / Non-QM → 3. Create Epic → 4. Decide sub-task split
-                    → 5. For each sub-task:
-                         5.1 Pick template (QM-style or Non-QM-style)
-                         5.2 [QM] Per-program walk OR [Non-QM] 3-section walk
-                         5.3 Matrix interview (one field at a time)
-                         5.4 Render body, confirm, create with parent
-                         5.5 Upload screenshots
-                    → 9. Report all URLs
-```
-
-### STEP 0 — Resolve input + mode detection
-
-**First check the argument:**
-- If it matches `MOSO-\d+` (e.g. `MOSO-12075`) → **UPDATE MODE**. Jump to "UPDATE MODE pipeline" below.
-- Otherwise → **CREATE MODE**. Continue with the upfront checklist below.
-
-**CREATE MODE** — the user provides everything the skill needs in one go. **Opening prompt lists all 8 inputs as a checklist** so the user knows what to gather before starting — no surprises mid-flow:
-
-```
-I'll build the Jira Epic + sub-tasks for this lender. Have these 8 things
-ready, then drop them (a folder is easiest):
-
-FILES (in the folder):
-  1. Ratesheet            (PDF / XLSX / XLSM / XLS — the rate grid + LLPAs)
-  2. Matrix               (screenshots in matrix/, OR a guideline.pdf
-                           — the eligibility / validation rules)
-  3. Guideline PDF        (the lender's product profile — fallback for matrix
-                           if matrix/ is missing)
-
-INFO (just answer when I ask):
-  4. Portal URL           (where you log in to apply / get this ratesheet,
-                           e.g. https://corr.lendername.com/login)
-  5. Lender ID            (10–11 digit provider account ID from your internal
-                           lender record, e.g. 34657427311)
-  6. Lender full name     (as on the email/portal, e.g. "Logan Finance Rates. Inc.")
-  7. Email sender         (name + address from the ratesheet email,
-                           e.g. "Kurt Lehrmann <klehrmann@loganfinance.com>")
-  8. Email subject        (e.g. "Today's Wholesale Non-QM Rates from Logan")
-
-Drop the folder path (containing 1–3) and I'll ask for 4–8 once I've read
-what's in the folder. After that I'll do the rest myself: extract the rates,
-adjustments, and matrix into written task bodies, attach the screenshots,
-inlined into the right sections.
-```
-
-After the user provides input, resolve:
-- `RATESHEET_PATH` — the `.pdf`/`.xlsx`/`.xlsm`/`.xls` file
-- `GUIDELINE_PATH` — `guideline.pdf` in the folder if present, else null
-- `SCREENSHOT_ROOT` — folder path, else null
-- Hold a slot for `PORTAL_URL`, `LENDER_ID`, `LENDER_NAME`, `EMAIL_SENDER_NAME`, `EMAIL_SENDER_ADDRESS`, `EMAIL_SUBJECT` — these get asked one at a time in Step 3 (Epic creation)
-
-### STEP 1 — Identify lender
-
-Extract candidate lender name from filename. Read first page/sheet to corroborate. Check whether already registered:
+**Two separate checks — both required, they answer different questions:**
 
 ```bash
-cd ${MOSO_REPO_ROOT:-$HOME/IdeaProjects}/packs/loan && ./lender-info.sh "<CandidateName>" 2>&1 | head -10
+cd "$PACKS_LOAN_DIR" && ./lender-info.sh "<CandidateName>" 2>&1 | head -20
+```
+Tells you whether a **parser already exists** (test methods, parser class, Tables class). `true` → likely a refresh or Correspondent variant, not a brand-new build; surface loudly and suggest `/fix-parser` or `check-lender-rate` mode `gap` instead. `false`/empty → no parser yet, continue. `ambiguous` → print candidates, ask.
+
+```bash
+grep -n "<CandidateName pattern>" "$LENDER_TYPE_JAVA" | head -5
+```
+Tells you whether the lender is **registered as a `LenderType` enum constant** — a completely different, earlier gate than "has a parser". If it's not found:
+
+```
+"<Lender>" isn't in LenderType.java yet. Two things need to happen before a
+parser can go live for a brand-new lender, and only the first is something
+I (or a BA) can do without a developer:
+
+  1. Basic lender record — the "Lenders" admin screen (LendersView, needs
+     EDIT_LENDER permission) — name, portal login, AE contact, etc. No code
+     change. If this doesn't exist yet, create it there first.
+
+  2. LenderType.java registration — a developer must append a new enum
+     constant to the BOTTOM of LenderType.java (packs/quote/.../typekey/
+     LenderType.java). Never insert mid-list — ordinals are persisted in
+     the DB, and inserting out of order previously misrouted a live lender
+     in production (MOSO-16335: NewRez resolved as AmWest). Until this
+     lands and packs/quote + packs/loan are rebuilt/deployed, the
+     Adjustments/Rate buttons and has-rate toggles on the Lenders record
+     stay disabled — /new-parser cannot finish even with a perfect ticket.
+
+I'll keep building the ticket either way (extraction and filing don't need
+the enum entry), but flag this to a developer now if it isn't already
+in flight. Continue?
 ```
 
-### STEP 1.5 — Auto-read everything in the folder (NEW)
+This is a warning + confirm, not a hard block — the ticket is still useful groundwork — but never skip surfacing it.
 
-**This is the core of the skill — read every file the user gave you and extract structured data BEFORE asking any matrix questions.** The goal is to never ask the user for a value that's already visible in one of their files.
+---
 
-Run all reads in parallel where possible. Build a structured `EXTRACTION` object — note that this version generates **written descriptions** of rate-grid and adjustment-table structure, so the eventual task body has prose alongside the inlined screenshots (not just `(see attachment)` placeholders):
+## STEP 1.5 — Auto-read + classify + extract (the old `/extract-ratesheet` pipeline, now built in)
+
+**This is the core of the skill.** Read every file BEFORE asking any matrix question — the goal is to never ask the user for a value that's already visible in one of their files. Run reads in parallel where possible.
+
+### 1.5.a — Per-file inspection
+
+For each `INPUTS[i]`:
+
+**PDF:**
+```bash
+python3 - <<'PY'
+import pdfplumber, os, json
+p = os.environ["FILE_PATH"]
+out = {"pages": 0, "tables_per_page": [], "total_tables": 0, "text_sample": "", "image_only": False}
+with pdfplumber.open(p) as pdf:
+    out["pages"] = len(pdf.pages)
+    pages_text = []
+    for i, page in enumerate(pdf.pages):
+        tbls = page.find_tables()
+        out["tables_per_page"].append({"page": i+1, "tables": len(tbls)})
+        out["total_tables"] += len(tbls)
+        if i < 6:
+            pages_text.append(page.extract_text() or "")
+    out["text_sample"] = "\n\n--- PAGE BREAK ---\n\n".join(pages_text)[:16000]
+    if not out["text_sample"].strip():
+        out["image_only"] = True
+print(json.dumps(out))
+PY
+```
+**⚠ Sampling limit — say this out loud in the report, don't bury it:** `text_sample` only covers the **first 6 pages, capped at 16,000 characters**. A longer guideline can have programs or validation rows past that window that this pass will never see. If `pages > 6` or a program you expected doesn't show up, re-read pages beyond 6 explicitly with the `Read` tool before concluding it's absent. If `image_only`, stop using this file for extraction and tell the user to run `ocrmypdf` first — don't pretend to extract from a scanned image.
+
+**Excel:**
+```bash
+python3 - <<'PY'
+import os, json
+from openpyxl import load_workbook
+p = os.environ["FILE_PATH"]
+wb = load_workbook(p, data_only=True, read_only=True)
+out = {"sheets": [], "text_sample": ""}
+chunks = []
+for name in wb.sheetnames:
+    ws = wb[name]
+    out["sheets"].append({"name": name, "rows": ws.max_row, "cols": ws.max_column})
+    for row in ws.iter_rows(min_row=1, max_row=min(40, ws.max_row), values_only=True):
+        chunks.append(" | ".join(str(c) for c in row if c is not None))
+out["text_sample"] = "\n".join(chunks)[:16000]
+print(json.dumps(out))
+PY
+```
+Same caveat: **first 40 rows per sheet, capped at 16,000 characters.** For a longer sheet, re-read specific row ranges past row 40 before assuming a program is absent. Legacy `.xls` → `pandas.read_excel(..., sheet_name=None)` with `xlrd`.
+
+### 1.5.b — Classify each file (`kind`)
+
+Score against four kinds using filename + text-keyword + structural signals:
+
+| Kind | Filename hints | Text hints | Structural |
+|---|---|---|---|
+| `ratesheet` | ratesheet, rate_sheet, wholesale, correspondent, pricing | Note Rate, 15/30/45/60-day, Lock Period, Base Price, Discount, Premium | many tables, short prose |
+| `guideline` | guideline, matrix, overlays, program, underwriting, uw | Eligible Properties, Loan Terms, Reserves, Maximum LTV, Min FICO, Owner Occupied | lots of prose, few tables, ≥1 eligibility-shaped table |
+| `matrix_only` | — | — | ≥80% page area is tables, almost no prose, ≥1 FICO×LTV grid |
+| `mixed` | — | both rate-grid AND prose-guideline signals in one file | — |
+
+No signal scores >1 → `kind = unknown`, warn. **The same lender often sends `ratesheet.xlsx` + `<program>_guideline.pdf` separately — don't assume one file covers everything.**
+
+### 1.5.c — Scan for program names
+
+Regex bank (case-insensitive, 40-char negation window checked — drop a hit if the preceding text matches `\bnot\b|\bexcept\b|\bexclud`):
 
 ```
-EXTRACTION = {
-  lender_name_candidate: string,
-  programs_detected: string[],    // e.g. ["DSCR", "DSCR Elite", "Bank Statement 12mo", "Bank Statement 24mo"]
-  lock_period_hint: string?,      // e.g. "30 days" if found in the ratesheet header
-
-  rate_grid_description: {        // WRITTEN description of rate grid structure (per program)
-    [program: string]: {
-      products: string[],         // e.g. ["30-year Fixed", "15-year Fixed", "5/6 ARM"]
-      lock_periods: string[],     // e.g. ["15-day", "30-day"]
-      rate_range: string,         // e.g. "6.000% – 8.000% in 0.125% steps"
-      categories: string[],       // e.g. ["Conforming"], or ["Conforming", "High Balance", "Jumbo"]
-      notes: string?              // e.g. "Government rates on sheet 2"
-    }
-  },
-
-  adjustment_tables_description: {  // WRITTEN list of adjustment tables (per program/section)
-    [program: string]: [
-      {
-        name: string,             // e.g. "FICO/LTV Purchase"
-        type: "FICO×LTV" | "FICO×ConditionCols" | "ConditionList",
-        row_labels: string[],     // e.g. ["780+", "760-779", "740-759", ..., "<660"]
-        col_labels: string[],     // e.g. ["LTV ≤60", "60.01-70", ..., "95.01-97"]
-        notes: string?            // e.g. "Negative values are credits"
-      },
-      ...
-    ]
-  },
-
-  lender_credit_caps: [           // captured from ratesheet footer / notes
-    { condition: string, cap: string }
-  ],
-
-  matrix: {                       // pre-extracted 14-field matrix
-    citizenship: string?,
-    occupancy: string?,
-    loan_term: string?,
-    document_type: string?,
-    min_loan_amount: string?,
-    max_loan_amount: string?,
-    property_type: string?,
-    min_fico: string?,
-    max_dti: string?,
-    dscr_ranges: string?,
-    cash_reserved: string?,
-    mortgage_lates: string?,
-    prepayment_penalty: string?,
-    interest_only: string?
-  },
-
-  extraction_sources: {           // which file gave us what
-    rates_source: "ratesheet" | "none",
-    adjustments_source: "ratesheet" | "none",
-    matrix_source: "matrix/" | "guideline.pdf" | "web" | "portal" | "none",
-    portal_fetched: boolean,      // true if we WebFetch'd the portal URL
-    matrix_warnings: string[]     // fields that look low-confidence
-  }
-}
+FANNIE MAE, FREDDIE MAC, "Adjustment of FNMA && FHLMC", "ALT AGENCY (Second Home/Investment)",
+HomeReady, HomePossible, "High Balance", FHA, VA, USDA, "FHA Streamline", "VA IRRRL",
+Jumbo, "Jumbo Pro", "Jumbo Elite", "Jumbo Preferred",
+DSCR, "Bank Statement", 1099, ITIN, "Asset Depletion", "Non-Agency Jumbo",
+"Investor Cash Flow", "Foreign National", "P&L"
 ```
 
-**Read passes (run in parallel where possible):**
+Dedupe across files into `PROGRAMS_DETECTED[]`, each with `sources[]` and hit locations.
 
-1. **Ratesheet** (PDF/XLSX) — extract STRUCTURE, not every cell:
-   - Use `Read` tool on the file. For PDFs up to 20 pages, read directly. For larger PDFs, read pages 1-5 first.
-   - For XLSX, use Bash + python (openpyxl or pandas) to list sheet names and dump the first 30 rows of each sheet.
-   - Extract for `rate_grid_description`:
-     - `products` — read product header rows (e.g. "30 YR FIXED", "15 YR FIXED", "5/6 ARM"). One entry per program.
-     - `lock_periods` — read column headers and lock period blocks (e.g. "15-day", "30-day", "45-day").
-     - `rate_range` — read the first and last rate rows, infer step size (e.g. "6.000% to 8.000% in 0.125 steps").
-     - `categories` — detect Conforming / High Balance / Jumbo splits on sheet names or section headers.
-   - Extract for `adjustment_tables_description`:
-     - Identify each adjustment table (often labeled "LLPA", "Adjustment", "Pricing Adjustments").
-     - For each table, write down `name`, `type` (FICO×LTV grid, condition list, etc.), `row_labels`, `col_labels`. Don't try to capture every cell value — just the SHAPE.
-   - Extract `lender_credit_caps` from notes/footer (e.g. "Max lender credit -2% for Owner Occupied", "Max -1% for Investment + 12mo PP").
-   - Extract `lender_name_candidate`, `programs_detected`, `lock_period_hint` (already in v4).
+### 1.5.d — Per-table classifier + eligibility-matrix extraction
 
-2. **Matrix screenshots** (`matrix/*.png` if present):
-   - Use `Read` on each image. Claude can see image content and read table text.
-   - For each image, identify which matrix field(s) it covers and extract values.
-   - Populate `EXTRACTION.matrix.*` from what's visible.
-   - Set `extraction_sources.matrix_source = "matrix/"`.
-   - Flag any field with unclear/cropped text in `matrix_warnings`.
+For each detected table, tag: `eligibility` (row labels mention Purchase/R&T/Cash-Out/occupancy/property; cells have LTV% + FICO together), `rate-grid` (15/30/45-day columns, many numeric rows), `llpa` (header says LLPA/Adjustment/Overlays; signed-number cells), `product-codes` (rows like `FCF30`/`CA5/6`), `max-loan-amount` (unit counts + dollar amounts), or `other`.
 
-3. **Guideline PDF** — fallback if `matrix/` is missing or incomplete:
-   - If a local `guideline.pdf` exists, use `Read` directly (up to 20 pages).
-   - If not, fall through to portal/web fetch in pass 4.
-   - Look for sections matching: "Eligibility", "Matrix", "Product Profile", "Underwriting Guidelines", "Borrower Eligibility".
-   - Populate `EXTRACTION.matrix.*` for any field still empty. Tag source as `"guideline.pdf"`.
+For each `eligibility` table, extract into the **14-field schema** (this is the schema the sub-task body's matrix table uses verbatim — don't let it drift):
 
-4. **Portal URL** (`PORTAL_URL` — once user provides it in Step 3):
-   - This is one of the 8 upfront inputs.
-   - **Always store it** so it can appear in the Epic body as a clickable reference.
-   - **Optionally fetch** it with `WebFetch` to see if it surfaces matrix info (some portals link to product profiles right on the landing page).
-   - If the portal redirects to a login wall (most do), don't try to bypass — just store the URL.
-   - If portal has a public product-profile section, `WebFetch` and use as additional matrix source. Tag `matrix_source = "portal"`.
+```
+citizenship, occupancy, loan_term, document_type, min_loan_amount, max_loan_amount,
+property_type, min_fico, max_dti, dscr_ranges, cash_reserved, mortgage_lates,
+prepayment_penalty, interest_only
+```
 
-5. **Web search fallback** — if matrix is still empty after passes 2/3/4:
-   - `WebSearch` for `<Lender> <Program> product profile matrix eligibility guideline 2026` (limit to lender's official domain when possible).
-   - `WebFetch` the top result. Look for the same sections as pass 3.
-   - Tag `matrix_source = "web"`.
+Leave a field `null` when not present in the table — 1.5.e tries prose next, then the user finishes it in Step 5.3's review.
 
-6. **Rate grid screenshots** (`rate-sheet/*.png`) and **adjustment screenshots** (`adjustment/*.png`):
-   - Use `Read` to skim each one — confirm what it contains (e.g. "this is the Full Doc rate grid", "this is the FICO/LTV adjustment for Conv Purchase").
-   - Don't deep-parse cell values — let the inlined screenshot speak for itself; the written description in pass 1 is enough.
-   - Just confirm filenames exist and map them to the right section.
+### 1.5.e — Program-validation extraction (system vs override) + conflict detection
 
-**Tell the user what you read:**
+Scan guideline prose for validation phrases scoped to the active program heading: min/max loan amount, eligible/ineligible property, max LTV/CLTV, max DTI, reserves months, lock period, citizenship, Foreign National eligibility, manufactured-housing eligibility, etc. Each match → `{field, note, source_page}`. Fields with no override found render in the ticket as the literal bullet `Use system validations`.
+
+**Conflict detection — never silently pick one.** If the same field has different values in two source files (ratesheet says Min FICO 680, guideline says 660), record BOTH and carry them into `conflicts[]` for the Epic/sub-task body's "Conflicts to resolve before lock" section.
+
+### 1.5.f — Sub-product / product-code mapping
+
+Parse any `product-codes` table into a best-guess Moso `getProduct(...)` tuple (e.g. `FCF30 → getProduct(Conforming, fixed(30), Conventional, lockPeriod(30))`). Flag unmappable/lender-specific codes as `? new product code` and Fast-Track/Buydown/Lender-Paid-style codes as needing an explicit mode.
+
+### 1.5.g — Matrix screenshots, portal, web fallback (fills remaining `null` fields)
+
+Run in this order, stopping as soon as a field is filled:
+
+1. **`matrix/*.png` screenshots** — `Read` each image, extract visible values, tag `matrix_source = "matrix/"`, flag cropped/unclear text in `matrix_warnings`.
+2. **`guideline.pdf`** (if `matrix/` missing/incomplete) — same 14-field extraction as 1.5.d, tag `"guideline.pdf"`.
+3. **Portal URL** (once the user gives it in Step 3) — always store it for the Epic body regardless; `WebFetch` it only if it isn't behind a login wall, tag `"portal"` if it surfaces matrix info.
+4. **Web search** — `WebSearch` for `<Lender> <Program> product guideline matrix eligibility 2026` (prefer the lender's own domain), `WebFetch` the top hit, tag `"web"`.
+
+If still empty after all four passes: **eligibility table not found anywhere.** Say so plainly — `"No structured eligibility table found; matrix extraction skipped for <program> — attach matrix screenshots or provide a guideline URL before this program can be filed."` Don't fabricate values.
+
+### 1.5.h — Rate grid + adjustment screenshots (structure, not every cell)
+
+For `rate-sheet/*.png` and `adjustment/*.png`, skim each to confirm what it contains and map filename → section — don't deep-parse cell values, the inlined screenshot speaks for itself once attached. Separately, write a **short prose description** of rate-grid structure (products, lock periods, rate range, Conforming/High-Balance/Jumbo splits) and adjustment-table shape (name, type, row/col labels) per program — this becomes the Background paragraph and Rate-sheet section text, not just "(see attachment)".
+
+### 1.5.i — Cross-check against Moso's vocabulary
+
+```bash
+grep -A 5 "Loan program:" "$PARSER_PRIMER" | head -20
+```
+For each detected program AND sub-product, classify:
+
+| Status | Meaning |
+|---|---|
+| `✓ supported` | In Moso's vocabulary and at least one existing parser handles it (check `$LENDERS_DOCS/*/README.md`) |
+| `~ partial` | In vocabulary but rarely parsed, no clear precedent |
+| `? new` | Not in vocabulary — needs a code change (new program type / mode) before it can be modeled |
+
+**This is the check that would have caught Community Wholesale Lending's `MOSO-16499` (2nd-lien, blocked on a missing `SECOND_LIEN` program type) before a sub-task was ever filed for it.** `? new` programs get a note: `"v1 recommendation: file a separate code-task to add the program type/mode before this can be a parser sub-task."`
+
+### Report what you read
 
 ```
 [1.5/9] Auto-read complete:
@@ -426,568 +332,344 @@ EXTRACTION = {
         Matrix source:    guideline.pdf  (matrix/ folder missing — fell back)
         Matrix extracted: 13 of 14 fields populated
         Warnings:         "Mortgage lates" field was cropped in the source — re-confirm
+        Vocabulary check: 4 ✓ supported, 1 ~ partial, 0 ? new
 ```
-
-The user is informed about source quality before any questions begin. They'll see exactly what was extracted in Step 5.3 below and can edit any field.
-
-### STEP 2 — Auto-detect type
-
-Score buckets (filename + ratesheet content). Confirm with the user via `AskUserQuestion`.
-
-**If Correspondent → jump to Step 8.**
-
-### STEP 3 — Create the Epic (QM / Non-QM)
-
-Ask the 6 Epic fields **one at a time** (free text). Each was listed in Step 0's upfront checklist so the user already has them ready:
-
-3.1 Lender full name (pre-fill from Step 1 auto-extract candidate)
-3.2 Provider account ID (10–11 digits; validate length and numeric)
-3.3 Email sender name
-3.4 Email sender address (validate contains `@`)
-3.5 Email subject
-3.6 Portal URL (validate starts with `http`)
-
-Preview → confirm → create Epic via MCP → upload ratesheet attachment.
-
-```
-mcp__d4873f66-6c13-4695-be2b-dbd414d76d1d__createJiraIssue
-  cloudId, projectKey: MOSO, issueTypeName: Epic,
-  summary, description (markdown), contentFormat: markdown
-```
-
-Capture `EPIC_KEY` and `EPIC_URL`.
-
-Upload ratesheet:
-```bash
-if [ -n "$JIRA_EMAIL" ] && [ -n "$JIRA_API_TOKEN" ]; then
-  curl -s -u "$JIRA_EMAIL:$JIRA_API_TOKEN" \
-    -H "X-Atlassian-Token: no-check" \
-    -F "file=@$RATESHEET_PATH" \
-    "$JIRA_BASE/rest/api/3/issue/$EPIC_KEY/attachments"
-fi
-```
-
-### STEP 4 — Decide the sub-task split
-
-Ask: "How many sub-tasks under this Epic?" then per sub-task: "Title (program group)?" The standard splits:
-
-- **QM**: typically 2 — "Conventional and Government programs", "Jumbo programs"
-- **Non-QM**: typically 3–5 — "Full Doc program", "Alt Doc program", "DSCR programs", "No Ratio programs", optionally "DSCR 5-8 unit program"
-
-Auto-derive full title: `[<QM|Non-QM>] <Lender Name> - Parse <group> program(s)`.
-
-### STEP 5 — Per sub-task: build the complete body
-
-For each sub-task in the list:
-
-#### 5.1 Pick the template
-
-QM → use Template Sub-QM (per-program sections).
-Non-QM → use Template Sub-NonQM (3 top-level sections + matrix table).
-
-#### 5.2a [QM path] Per-program walk
-
-Ask which programs are in this sub-task (multi-select from common QM list + "Other"). Examples for "Conv+Gov":
-- FANNIE MAE, FREDDIE MAC, Adjustment of FNMA && FHLMC, ALT AGENCY Second Home/ Investment, FHA, VA & USDA, FHA Streamline & VA IRRRL
-
-For each selected program, ask:
-- **Validation bullets** — defaults to `Use system validations`. Allow override (e.g. add "Min loan amount = $75k").
-- **Optional sub-sections** — multi-select: `High Balance`, `Adjustment`, `Matrix`, `Lender paid`. For each picked sub-section, ask if there's a specific note (e.g. "USDA: use system validations").
-- **Type out a matrix table for this program?** Y/n. **Defaults:**
-  - `n` for agency programs that use system validations (FANNIE MAE, FREDDIE MAC, USDA in VA & USDA, FHA Streamline & VA IRRRL). System has built-in Fannie/Freddie validators — typed matrix is unnecessary.
-  - `y` for non-agency / overlay programs (ALT AGENCY Second Home/ Investment, Jumbo, Jumbo Pro, Jumbo Elite, Jumbo Preferred, sometimes FHA with custom overlays). System doesn't have these — `/new-parser` needs the typed matrix.
-  - If `y` → run the full **Matrix Interview** in 5.3 below for this program. Insert the resulting 14-field markdown table as the body of the program's `* **Matrix**` sub-section.
-
-Also ask once for the sub-task:
-- **Lock period note** at top — e.g. "Use rate of 30 days" (defaults to skipping if blank).
-
-#### 5.2b [Non-QM path] 3-section walk
-
-Single primary program per sub-task (the sub-task title already tells us, e.g. "Full Doc", "DSCR", "No Ratio"). Walk through three sections, asking one thing per section:
-
-**Rate sheet section:**
-- **Lock period** — e.g. "30 days" (becomes "Use rate 30 days").
-- **Program variants** — for DSCR-style sub-tasks: list variants like ["DSCR", "DSCR Elite"]. For single-variant programs (Full Doc, Alt Doc), skip.
-- **Lender credit caps** — ask: "Are there lender credit caps that depend on conditions (occupancy, prepayment penalty term, etc.)?" If yes, capture as a markdown table. Example pattern:
-  ```
-  | <condition image>  | **Occupancy** = Owner occupied → Max lender credit = -2%        |
-  | <condition image>  | **PP Term** = No prepayment → 0% / 12mo → -1% / 24mo → -1% / 36mo → -2% |
-  ```
-
-**Adjustment section:**
-- Note any adjustment screenshots will be attached.
-- **Value-mapping table** (optional but common) — ask: "Are there ratesheet adjustment columns that need to be mapped to different system column names?" Example for DSCR:
-  ```
-  | <ratesheet image> | DSCR < 0.80 → DSCR < 0.75 |
-  |                   | DSCR 0.80 - 0.99 Low Ratio → DSCR >= 0.75 < 1 |
-  |                   | DSCR 1.10-1.19 → DSCR >= 1 < 1.25 |
-  |                   | DSCR >= 1.20 → DSCR > 1.25 |
-  ```
-
-**Matrix && Validation section:** → invoke the **Matrix Interview** in 5.3 below.
-
-#### 5.3 Matrix review (auto-extracted → user reviews → edit any row → confirm)
-
-**Most of this work was already done in Step 1.5.** This step is REVIEW, not interview.
-
-Show the user the pre-filled matrix as a markdown table:
-
-```
-─────────────────────────────────
-EXTRACTED MATRIX for "Full Doc program" sub-task
-Source: guideline.pdf
-─────────────────────────────────
-|  |  |
-| --- | --- |
-| **Citizenship** | US Citizen / Permanent Resident Alien / Non-Permanent Resident Alien / Foreign National |
-| **Occupancy** | Primary / Second Home / Investment |
-| **Loan term** | 30 years fixed / 30 years fixed IO / 40 years fixed / 40 years fixed IO (Use rate sheet of 30 years) / 5/6 ARM |
-| **Document type** | Full doc 12 months / Full doc 24 months |
-| **Min-Max loan amount** | Min: $125K  Max: $3M |
-| **Property type** | SFR / TH/PUD / Duplex/Triplex/Fourplex / Warrantable Condos / Non-Warrantable Condos / 2-4 Unit (Max LTV = 80%) |
-| **Min FICO** | 660 (exclude Foreign National) |
-| **DTI** | Max DTI = 50% |
-| **Cash Reserved** | ≤ $1M → 3 months / $1-2M → 6 months / > $2M → 9 months / Foreign National: 12 months |
-| **Mortgage lates** | ⚠️ No mortgage 1x30x12  (low-confidence — guideline image was cropped) |
-| **Prepayment Penalty Term** (Investment only) | No PPP / 12/24/36 months PP |
-| **Interest Only** | If IO = Yes: Purchase: FICO≥740 LTV≤80% / Refi: LTV≤75% |
-─────────────────────────────────
-
-What do you want to do?
-  a) Accept all and proceed
-  b) Edit a row — tell me which (e.g. "edit Min FICO")
-  c) Re-extract from a different source — paste a guideline URL, point at another file, or say "walk-through"
-```
-
-Use `AskUserQuestion` with those three options. Highlight any field with a `matrix_warnings` flag using ⚠️ so the user knows where to focus their review.
-
-**If user picks (b) — edit a row:**
-- Ask them to name the row label (or pick from a list).
-- Show the current value, ask for the new value.
-- Update the matrix, re-render the table, loop back to the three-option prompt.
-
-**If user picks (c) — re-extract:**
-- Sub-options:
-  - **Walk through each field manually** (the legacy 14-question flow — kept as a fallback)
-  - **Paste matrix text** (user pastes from clipboard, skill re-parses)
-  - **Fetch from a different URL** (`WebFetch` a different guideline source)
-  - **Read a different local file** (point at `~/Downloads/some-other-guideline.pdf`, `Read` it, re-extract)
-- After re-extracting, loop back to the three-option prompt.
-
-**If matrix is empty** (no `matrix/` folder, no `guideline.pdf`, web search came up empty):
-- Skip the preview and fall through to the legacy walk-through (option c → "walk through each field manually").
-- Warn the user: "Couldn't auto-extract any matrix data — falling back to manual walk-through. Provide a guideline URL or local PDF to skip the manual steps."
-
-**For QM agency programs** (FANNIE MAE, FREDDIE MAC, USDA within VA & USDA, FHA Streamline & VA IRRRL) where the user said `n` to "type a matrix?":
-- Skip this step entirely. Just use the `Use system validations` bullet.
 
 ---
 
-#### 5.3 Fallback: Fetch-from-URL (when user picks "re-extract from a different source")
+## STEP 1.6 — Render the extraction REPORT
 
-1. If user has the URL, fetch directly with `WebFetch`. Otherwise `WebSearch` for `<Lender> <Program> product profile matrix eligibility guideline` (year: 2026) — pick the top result from the lender's official domain (e.g. `*.lender.com`, `*correspondent.lender.com`).
-2. `WebFetch` the PDF/page. Look for sections matching: "Eligibility", "Matrix", "Product Profile", "Underwriting Guidelines".
-3. Extract the matrix values into the field list below. Show a preview to the user. Let them edit before confirming.
-4. If WebFetch returns "couldn't parse" — try saving the URL and asking the user if they want to attempt the search again with a different query, or fall back to manual walk.
-
-#### 5.3 Fallback: Walk-through fields (legacy manual mode)
-
-Used when (a) auto-extract returns nothing, (b) user explicitly chooses "walk through each field manually" in the re-extract sub-options, or (c) the user is verifying a low-confidence field one at a time.
-
-Ask these fields **in order, one `AskUserQuestion` per field**:
-
-| # | Field | Format hint | Skippable? |
-|---|---|---|---|
-| 1 | Citizenship eligibility | Multi-select: US Citizen / Permanent Resident Alien / Non-Permanent Resident Alien / Foreign National | No |
-| 2 | Occupancy | Multi-select: Primary / Second Home / Investment | No |
-| 3 | Loan term options | Free text, e.g. "30 years fixed / 30 years fixed IO / 40 years fixed / 40 years fixed IO (Use rate sheet of 30 years) / 5/6 ARM" | No |
-| 4 | Document type | Free text, e.g. "Full doc 12 months / Full doc 24 months" | No |
-| 5 | Min loan amount | Number with $ and K/M suffix, e.g. "$125K" | No |
-| 6 | Max loan amount | Number with $ and K/M suffix, e.g. "$3M" | Yes (leave blank) |
-| 7 | Property type | Multi-select with optional LTV caveats per type | No |
-| 8 | Min FICO | Number, or per-condition text like "660 (exclude Foreign National)" | No |
-| 9 | Max DTI | Number percent, e.g. "Max DTI = 50%" | Yes (some Non-QM use DSCR instead) |
-| 10 | DSCR ranges | Free text, e.g. "DSCR < 0.75 / DSCR >= 0.75 < 1 / DSCR >= 1 < 1.25 / DSCR > 1.25" | Yes (only for DSCR programs) |
-| 11 | Cash Reserved | Free text by loan-amount tier, e.g. "≤ $1M → 3 months / $1-2M → 6 months / > $2M → 9 months / Foreign National: 12 months" | No |
-| 12 | Mortgage lates | Free text, e.g. "No mortgage 1x30x12" | No |
-| 13 | Prepayment Penalty Term | Free text, e.g. "No PPP / 12/24/36 months PP" | Yes (only if Investment-eligible) |
-| 14 | Interest Only | Free text conditional rule, e.g. "If Interest Only = Yes: Purchase: min FICO = 740, max LTV = 80%; Refi: max LTV = 75%" | Yes (only if IO offered) |
-
-When asking, always include:
-- A one-line example from real samples (above) so the user knows the expected format.
-- An option to skip (writes blank in the table — user can fill in Jira later).
-- An option to type "guideline" — re-invokes the fetch-from-URL flow for that field only.
-
-After all 14 fields, render the matrix table preview (markdown 2-column). Let the user edit any single row before confirming.
-
-#### 5.4 Render the sub-task body
-
-Combine sections per the template chosen in 5.1. Show the full preview:
+One scannable block, same shape every time — this is the deliverable of extract-only mode:
 
 ```
-─────────────────────────────────
-SUB-TASK 1 of N
-TITLE:   [Non-QM] Logan Finance - Parse Full Doc program
-TYPE:    Task
-PARENT:  MOSO-15234 (the Epic)
-─────────────────────────────────
-DESCRIPTION:
-# **Rate sheet (Use rate 30 days)**
+─────────────────────────────────────────────────────────────
+📄 RATESHEET / GUIDELINE REPORT — <Lender Candidate>
+─────────────────────────────────────────────────────────────
+  Inputs (3 files):
+    1. amwest_ratesheet_0521.xlsx          → ratesheet   (4 sheets, 1.2 MB)
+    2. amwest_conforming_guideline.pdf     → guideline   (9 pages, 945 KB — sampled first 6)
+    3. amwest_jumbo_guideline.pdf          → guideline   (6 pages, 612 KB)
 
-(Rate grid screenshot attached)
+  Lender (detected):   AmWest Funding
+  Registered?          LenderType.java: NO — needs a developer (see Step 1)
+  Existing parser?     No — looks like a new lender
+  Detected type:       QM (confidence: high)
 
-|  |  |
-| --- | --- |
-| <image placeholder> | **Occupancy** = Owner occupied → Max lender credit = -2% |
-| <image placeholder> | **Occupancy** = Investment && PPT = No → 0% / 12mo → -1% / 24mo → -1% / 36mo → -2% |
+🏛 PROGRAMS DETECTED (deduped across inputs)
+  ✓ FANNIE MAE      supported   sources: amwest_conforming_guideline.pdf, amwest_ratesheet.xlsx
+  ✓ FHA             supported   sources: amwest_ratesheet.xlsx
+  ~ Jumbo Pro       partial     sources: amwest_jumbo_guideline.pdf
+  ? Jumbo Elite     NEW — not in Moso vocabulary; needs a code change first
 
-# **Adjustment**
+📋 ELIGIBILITY MATRIX (extracted — review before handoff, 13/14 fields for FANNIE MAE)
+  ... (full 14-field table, same shape as Step 5.3's preview)
 
-(Adjustment screenshots attached)
+📜 VALIDATIONS (system vs override)
+  FANNIE MAE: Min loan amount = $50,000 (override, p.2); Use system validations for the rest.
+  ⚠ Conflict — FANNIE MAE min FICO: 620 in ratesheet vs 640 in guideline. Unresolved.
 
-# **Matrix && Validation**
+📐 ADJUSTMENTS / LLPA
+  12 LLPA tables detected across ratesheet pp.4-7 and conforming guideline pp.5-7.
+─────────────────────────────────────────────────────────────
+```
 
-* P/RT : Purchase/Refinance Rate-term
-* C/O : Cash-out
-* Foreign National (only eligible for Second Home/Investment)
+---
 
-|  |  |
-| --- | --- |
+## STEP 1.7 — Scope gate (in v1?)
+
+For each program in `PROGRAMS_DETECTED[]`, one `AskUserQuestion`:
+
+```
+question: "Parse <PROGRAM> in v1?"
+options:
+  - "Yes — include in this parser ticket"
+  - "Skip — not in v1, no ticket"
+  - "Block on code-task — file a MOSO code-task to add the program type first"
+```
+
+Default the suggested answer from the vocabulary check: `✓ supported` → Yes; `~ partial` → ask without a strong default; `? new` → Block on code-task. Store `SCOPE_DECISION[program]`. Only `"in"` programs feed Step 1.8's split and Step 3–5's ticket filing. If everything ends up skip/block, stop — there's nothing to file for v1, say so.
+
+## STEP 1.8 — Recommend a sub-task split (in-scope programs only)
+
+| Split | Programs |
+|---|---|
+| "Conv + Gov" | FANNIE MAE, FREDDIE MAC, FHA, VA, USDA, FHA Streamline, VA IRRRL |
+| "Jumbo" | Jumbo, Jumbo Pro, Jumbo Elite, Jumbo Preferred, Non-Agency Jumbo |
+| Non-QM (by income proof) | DSCR / Bank Statement / 1099 / ITIN / Asset Depletion — usually one sub-task each |
+
+Render the recommendation (including anything excluded for being blocked) and note it's editable in Step 4.
+
+## STEP 1.9 — EXTRACT-ONLY exit / handoff decision
+
+Always ask this, even in CREATE mode — it's the standalone-extraction path the user may want:
+
+```
+question: "What next?"
+options:
+  - "File Jira tickets now with this extraction"        (→ continue to Step 2)
+  - "Let me edit the sub-task split first, then file"    (→ Step 4 first, then continue)
+  - "Just save the report — I'll file later"             (→ save to
+     ~/IdeaProjects/skills-updates/extract-ratesheet-runs/<lender-slug>-<YYYYMMDD>.md, print path, stop)
+  - "This lender already exists — I picked the wrong flow" (→ point at check-lender-rate or /fix-parser, stop)
+```
+
+If invoked with `--extract-only`, skip this question — always behave as "just save the report" and stop. Never write to Jira from extract-only mode under any circumstance.
+
+---
+
+## STEP 2 — Confirm type (QM / Non-QM / Correspondent)
+
+Already scored during 1.5.b/1.5.c from filename + content signals. Confirm with the user via `AskUserQuestion`, all three options shown. **If Correspondent → jump to Step 7.**
+
+## STEP 3 — Create the Epic (ADF)
+
+### 3.1 — Gather Epic-level fields, one at a time
+
+Pre-filled from Step 1.5 where possible:
+- Lender full name (pre-fill from candidate)
+- Provider account ID (10–11 digits; validate length and numeric; if the lender isn't registered yet per Step 1, allow `TBD` here — don't block ticket creation on an ID that lender management hasn't assigned)
+- Email sender name
+- Email sender address (must contain `@`)
+- Email subject
+- Portal URL (validate starts with `http`; allow `TBD` if none exists yet)
+
+### 3.2 — Title
+
+```
+[Parse QM] <Lender Name>          (or [Parse Non-QM] <Lender Name>)
+```
+
+### 3.3 — Body (ADF)
+
+```
+doc
+  panel[info]     "Parser > <Lender Full Name>"
+  paragraph       "Background: New <QM|Non-QM> parser kick-off for <Lender>. Rate sheet
+                   attached. This Epic is the umbrella; per-program parser work happens
+                   in the child sub-tasks."
+  heading[3]      "Specification — Lender identification"
+  table (5 cols)  # | Field name | Format | Value | Description
+                  1 | Lender name | Text | <Lender Full Name> | Full legal name from email
+                  2 | Provider account ID | Number | <id or TBD> | From the provider system
+                  3 | Email sender | Email | <addr> (<name>) | Where the ratesheet came from
+                  4 | Email subject | Text | <subject> | For traceability
+                  5 | Rate sheet | Attachment | <filename> | Attached to this Epic
+  heading[3]      "Acceptance Criteria"
+  bulletList      - Lender is registered in LenderType.java and the Lenders admin screen.
+                  - All sub-tasks (one per program group) are filed under this Epic.
+                  - Rate sheet attachment is preserved on the Epic for audit.
+```
+
+Use the ADF node helpers at the bottom. Preview (rendered as readable pseudo-markdown) → confirm `[Y/edit/cancel]` → create:
+
+```
+tool: createJiraIssue
+cloudId: mosoteam.atlassian.net, projectKey: MOSO, issueTypeName: "Epic"
+summary: "<title>", description: <ADF doc object>, assignee_account_id: TRUNG_ACCOUNT_ID
+```
+
+Capture `EPIC_KEY`/`EPIC_URL`. Upload the ratesheet:
+```bash
+if [ -n "$JIRA_EMAIL" ] && [ -n "$JIRA_API_TOKEN" ]; then
+  curl -s -u "$JIRA_EMAIL:$JIRA_API_TOKEN" -H "X-Atlassian-Token: no-check" \
+    -F "file=@$RATESHEET_PATH" "$JIRA_BASE/rest/api/3/issue/$EPIC_KEY/attachments"
+else
+  echo "WARN: JIRA_EMAIL/JIRA_API_TOKEN not set — attach manually at $EPIC_URL"
+fi
+```
+
+## STEP 4 — Confirm the sub-task split
+
+Show Step 1.8's recommendation for confirmation (`[Y / edit count / edit titles]`), or ask fresh if extract-only was skipped. Auto-derive titles: `[<QM|Non-QM>] <Lender Name> - Parse <group> program(s)`.
+
+## STEP 5 — Per sub-task: build the complete body
+
+For each sub-task:
+
+### 5.1 — Pick the template
+QM → per-program sections. Non-QM → 3 sections (Rate sheet / Adjustment / Matrix && Validation) + always-typed matrix.
+
+### 5.2a — [QM] Per-program walk
+For each selected program (multi-select from the common list: FANNIE MAE, FREDDIE MAC, "Adjustment of FNMA and FHLMC", ALT AGENCY Second Home/Investment, FHA, VA & USDA, FHA Streamline & VA IRRRL — note: write "and" not a literal `&&` in anything user-facing, that's a formatting leftover from an earlier version, not a real ampersand-ampersand):
+- **Validation bullets** — default `Use system validations`; allow override, pre-filled from Step 1.5.e.
+- **Optional sub-sections** (multi-select): High Balance, Adjustment, Matrix, Lender paid.
+- **Type a matrix table for this program? Y/n** — default `n` for agency programs (FANNIE MAE, FREDDIE MAC, USDA-within-VA&USDA, FHA Streamline & VA IRRRL: *"Fannie Mae/Freddie Mac already have built-in eligibility checks in our system, so a typed matrix usually isn't needed here — type one anyway?"* — say this rationale in the prompt itself, not just in this skill's internal notes), default `y` for non-agency/overlay programs (ALT AGENCY, Jumbo variants, custom FHA overlays). If `y`, run the Matrix review (5.3) for this program.
+- Once for the sub-task: lock-period note at top (e.g. "Use rate of 30 days").
+
+### 5.2b — [Non-QM] 3-section walk
+Single primary program per sub-task. **Rate sheet section**: lock period, program variants (e.g. DSCR/DSCR Elite), lender credit caps (as a 2-col table if conditional). **Adjustment section**: note screenshots will attach; optional value-mapping table (e.g. ratesheet DSCR bands → system DSCR bands). **Matrix && Validation section**: → Step 5.3.
+
+### 5.3 — Matrix review (pre-filled from Step 1.5 → user reviews → confirm)
+
+This is REVIEW, not interview — most of the work already happened in Step 1.5. Show the full 14-field markdown table with low-confidence fields flagged `⚠️`:
+
+```
 | **Citizenship** | US Citizen / Permanent Resident Alien / Non-Permanent Resident Alien / Foreign National |
 | **Occupancy** | Primary / Second Home / Investment |
-| **Loan term** | 30 years fixed / 30 years fixed IO / 40 years fixed / 40 years fixed IO (Use rate sheet of 30 years) / 5/6 ARM |
+| **Loan term** | 30yr fixed / 30yr fixed IO / 40yr fixed / 40yr fixed IO (use 30yr rate sheet) / 5/6 ARM |
 | **Document type** | Full doc 12 months / Full doc 24 months |
 | **Min-Max loan amount** | Min: $125K  Max: $3M |
 | **Property type** | SFR / TH/PUD / Duplex/Triplex/Fourplex / Warrantable Condos / Non-Warrantable Condos / 2-4 Unit (Max LTV = 80%) |
 | **Min FICO** | 660 (exclude Foreign National) |
 | **DTI** | Max DTI = 50% |
-| **Cash Reserved** | ≤ $1M → 3 months / $1-2M → 6 months / > $2M → 9 months / Foreign National: 12 months |
-| **Mortgage lates** | No mortgage 1x30x12 |
-| **Prepayment Penalty Term** (Investment only) | No PPP / 12/24/36 months PP |
-| **Interest Only** | If IO = Yes: Purchase: min FICO = 740, max LTV = 80%; Refi: max LTV = 75% |
-─────────────────────────────────
-ATTACHMENTS (14 files):
-  rate-sheet/full-doc-rates.png, adjustment/full-doc-adj1.png, ...
-─────────────────────────────────
+| **DSCR** | (only for DSCR programs) |
+| **Cash Reserved** | ≤$1M → 3mo / $1-2M → 6mo / >$2M → 9mo / FN: 12mo |
+| **Mortgage lates** | ⚠️ No mortgage 1x30x12 (low-confidence — guideline image was cropped) |
+| **Prepayment Penalty Term** | No PPP / 12/24/36 months PP (Investment only) |
+| **Interest Only** | If IO = Yes: Purchase FICO≥740 LTV≤80% / Refi LTV≤75% |
 
-Send to Jira? [Y/edit/skip]
+a) Accept all and proceed
+b) Edit a row — tell me which
+c) Re-extract from a different source — paste a URL, point at another file, or say "walk-through"
 ```
 
-On confirm, create:
+(b) → ask row label, show current, ask new value, re-render, loop. (c) → sub-options: walk through each field manually (legacy 14-question fallback below), paste matrix text, fetch a different URL (`WebFetch`), read a different local file. If matrix is completely empty after Step 1.5, skip straight to (c)'s manual walk-through and say so loudly. **For QM agency programs where the user said `n` to "type a matrix?", skip this step entirely** — just the `Use system validations` bullet.
+
+**Legacy fallback — walk-through fields one at a time** (only when auto-extract found nothing, or the user explicitly chooses it): ask each of the 14 fields via one `AskUserQuestion` each, with a real-sample format hint and a skip option, same field list/order as the 14-field schema in Step 1.5.d. This is the mode of last resort — it existed as the *only* mode before Step 1.5 existed; keep it working, but it should rarely trigger now.
+
+### 5.4 — Render the sub-task body (ADF) and confirm
+
+Build the ADF doc:
 
 ```
-mcp__d4873f66-6c13-4695-be2b-dbd414d76d1d__createJiraIssue
-  cloudId, projectKey: MOSO, issueTypeName: Task,
-  parent: <EPIC_KEY>,
-  summary, description (markdown), contentFormat: markdown
+doc
+  panel[info]     "Parser > <Lender> > <split-title>"
+  paragraph       "Background: <1-2 sentences, English, naming in-scope programs and any
+                   global lock-period note — derived from Step 1.5.h's structure description>"
+  (only if conflicts[] non-empty for this sub-task's programs:)
+  heading[3]      "Conflicts to resolve before lock"
+  bulletList      - "<program> <field> is <value A> in the rate sheet but <value B> in the
+                      guideline. Confirm the correct value before locking the parser."
+  heading[3]      "Specification — Programs in scope"      (QM: one row per program in this
+  table (5 cols)   # | Program | Sub-products | Eligibility summary | Validations           sub-task; Non-QM: usually one row, the sub-task's single program)
+  heading[3]      "Specification — Adjustments / LLPA"     (if this sub-task owns adjustments)
+  table (3 cols)   # | Adjustment matrix | Source
+  heading[3]      "Matrix && Validation — <program>"        (repeat per program that has one —
+  table (2 cols)   <full 14-field table from 5.3, typed out in full, not summarized>          THIS is what makes the body complete enough for /new-parser; the 5-col
+                                                                                                Specification table above is the scannable summary, this is the source of truth)
+  panel[note]      "<<<SCREENSHOT:section:filename.png>>>"   (one per screenshot — see 5.5 for
+                                                                real inlining, not a permanent text placeholder)
+  heading[3]      "Acceptance Criteria"
+  bulletList      - All listed rate products quote correctly on viet18 staging.
+                  - Every LLPA adjustment row triggers when its scenario is quoted.
+                  - Quoting outside any eligibility matrix (e.g. LTV above the max) blocks
+                    with the correct error.
+                  - Per-program validations enforce as listed in the Specification.
+                  - All conflicts above (if any) are resolved with a documented decision.
 ```
 
-#### 5.5 Upload screenshots AND inline them into the right sections (2-pass)
+Render as readable pseudo-markdown, show attachment file list, `Send to Jira? [Y/edit/skip]`. On confirm:
 
-The skill inlines screenshots programmatically using a 2-pass create-then-update flow with ADF (Atlassian Document Format), because Jira's markdown mode doesn't support attachment references reliably.
-
-**Pass 1 — placeholder body, create, upload:**
-
-In the body built in 5.4, mark each screenshot insertion point with a unique placeholder token: `<<<SCREENSHOT:section-name:filename.png>>>`. Examples:
-
-```markdown
-# **Rate sheet (Use rate 30 days)**
-
-<<<SCREENSHOT:rate-sheet:full-doc-rates.png>>>
-
-|  |  |
-| --- | --- |
-| <<<SCREENSHOT:rate-sheet:lender-credit-cap-conditions.png>>> | **Occupancy** = Owner occupied → Max lender credit = -2% |
-| <<<SCREENSHOT:rate-sheet:lender-credit-cap-pp-conditions.png>>> | **PP Term** = No prepayment → 0% / 12mo → -1% ... |
-
-# **Adjustment**
-
-<<<SCREENSHOT:adjustment:full-doc-adj1.png>>>
-<<<SCREENSHOT:adjustment:full-doc-adj2.png>>>
+```
+tool: createJiraIssue
+cloudId: mosoteam.atlassian.net, projectKey: MOSO, issueTypeName: "Task"
+parent: <EPIC_KEY>, summary: "<sub-task title>", description: <ADF doc object with
+<<<SCREENSHOT:...>>> tokens still as plain text — Pass 1 only>, assignee_account_id: TRUNG_ACCOUNT_ID
 ```
 
-Create the sub-task via `createJiraIssue` with this placeholder-laden markdown body. Capture `SUB_TASK_KEY`.
+Capture `SUB_TASK_KEY`.
 
-Then upload each image file to the sub-task via curl. For each successful upload, capture from the response JSON:
-- `id` (attachment ID — e.g. `"94627"`)
-- `filename`
-- `mimeType`
+### 5.5 — Upload screenshots AND inline them as real images (2-pass)
 
-Build a map `placeholder_map[token] → {id, filename}` keyed by the placeholder token.
+Jira's create call doesn't have attachment IDs yet, so screenshots become real embedded images in two passes — this applies whether the placeholder sits inside a `panel[note]` or a table cell:
 
-**Pass 2 — replace placeholders with ADF media nodes, edit:**
+**Pass 1** (done above): body created with `<<<SCREENSHOT:section:filename.png>>>` tokens as plain text inside the ADF paragraph/panel content.
 
-Convert the body to an ADF document. For each placeholder, replace it with an ADF `mediaSingle` node:
+**Pass 2**: upload each file via curl to `$JIRA_BASE/rest/api/3/issue/$SUB_TASK_KEY/attachments`, capture `{id, filename, mimeType}` per upload, build `placeholder_map[token] → {id, filename}`. Walk the ADF doc and replace each placeholder text node with an ADF `mediaSingle`:
 
 ```json
-{
-  "type": "mediaSingle",
-  "attrs": { "layout": "center" },
-  "content": [
-    {
-      "type": "media",
-      "attrs": {
-        "type": "file",
-        "id": "<attachment_id_from_upload_response>",
-        "collection": ""
-      }
-    }
-  ]
-}
+{"type": "mediaSingle", "attrs": {"layout": "center"},
+ "content": [{"type": "media", "attrs": {"type": "file", "id": "<attachment_id>", "collection": ""}}]}
 ```
 
-Surrounding markdown is converted into ADF paragraph / heading / table nodes (use `contentFormat: "adf"` from the start of Pass 2). Then `editJiraIssue` with the ADF body:
-
+Then:
 ```
-mcp__d4873f66-6c13-4695-be2b-dbd414d76d1d__editJiraIssue
-  cloudId, issueIdOrKey: <SUB_TASK_KEY>
-  additional_fields: {
-    "description": <ADF JSON object>
-  }
-  contentFormat: "adf"
+tool: editJiraIssue
+cloudId, issueIdOrKey: <SUB_TASK_KEY>
+additional_fields: { "description": <ADF JSON with media nodes> }
+contentFormat: "adf"
 ```
 
-**Fallback if ADF generation fails:** if a placeholder fails to find its corresponding upload (file missing, upload rejected, etc.), replace it with a plain text marker `[Screenshot: filename.png — not inlined; see Attachments]` and proceed. Log a warning at the end of the run.
+**Never leave `[INSERT IMAGE: ...]` as permanent literal text in a finished ticket** — that's a placeholder for Pass 1 only. If an upload fails for a specific file, replace that one token with `[Screenshot: filename.png — not inlined; see Attachments]` and log a warning; don't fail the whole ticket over one bad image. Files that don't map to any placeholder still get uploaded as plain attachments. The Epic's ratesheet attachment needs no placeholder — it's a plain attachment, not inlined.
 
-**Files that don't map to placeholders** (extra screenshots in the folder): upload them anyway as plain attachments. They'll appear at the bottom of the ticket and the user can place them manually if desired.
+### 5.6 — Add the QA test-case checklist as a comment
 
-**For the Epic** (ratesheet only): no placeholders needed. Upload the ratesheet as a single plain attachment after Epic creation — `<<<SCREENSHOT:epic:ratesheet>>>` is not necessary since the Epic body doesn't reference the ratesheet inline anyway.
+After the body is created and images inlined, post a comment with a checklist derived **only from what's actually in the sub-task body** — every program, adjustment table, and matrix field that appears becomes one checklist row. Same source of truth, different view for QA. Empty `☐` boxes; QA replaces with ✅/❌ as they verify.
 
-#### 5.6 Add the QA test case checklist as a comment on the sub-task
-
-After the sub-task is created and screenshots are inlined, post a comment on the same sub-task containing a structured QA checklist. The format mirrors the Confluence checklist style observed at MOSO-12073's reference page — items in tables with a "Check" column that QA fills with ✅ or ❌ as they verify each parsed element.
-
-The comment body is **derived from what's in the sub-task body** — every program, adjustment table, and matrix field that was put in the body becomes one row in the checklist. Same source of truth, no duplication of facts, just a different view for QA.
-
-**For QM sub-task** (mirrors MOSO-12073 format):
-
+**QM sub-task** (mirrors MOSO-12073):
 ```markdown
 ## QA Test Case Checklist
-
 > Verify each parsed element matches the ratesheet. Replace ☐ with ✅ when verified, ❌ if mismatched.
 
 ### Fannie Mae — Loan Programs
-|  Loan Program | Check |
+| Loan Program | Check |
 | --- | --- |
 | FANNIE MAE 30 YEAR FIXED (101) | ☐ |
-| FANNIE MAE 25 YEAR FIXED (125) | ☐ |
-| FANNIE MAE 20 YEAR FIXED (120) | ☐ |
-| FANNIE MAE 15 YEAR FIXED (115) | ☐ |
-| FANNIE MAE 10 YEAR FIXED (110) | ☐ |
-| HOME READY 30 YEAR FIXED (R101) | ☐ |
-| FANNIE MAE HB 30 YEAR FIXED (101HB) | ☐ |
-| ... | ☐ |
+...
 
-### Freddie Mac — Loan Programs
-| Loan Program | Check |
-| --- | --- |
-| FREDDIE MAC 30 YEAR FIXED (201) | ☐ |
-| ... | ☐ |
-
-### Adjustment of FNMA && FHLMC
-| Adjustment | Check |
-| --- | --- |
-| FICO/LTV Purchase Adjustments (Loan terms > 15 years) | ☐ |
-| FICO/LTV Rate & Term Adjustments (Loan terms > 15 years) | ☐ |
-| FICO/LTV Cashout Adjustments | ☐ |
-| Additional Agency Adjustments | ☐ |
-| LOAN AMOUNT ** | ☐ |
-| MISCELLANEOUS | ☐ |
-| LENDER PAID MI | ☐ |
-| LPMI (in addition to adjustments above) | ☐ |
-
-### ALT AGENCY Second Home / Investment — Loan Programs
-| Loan Program | Check |
-| --- | --- |
-| Alt Agency 30 Yr Fixed (AltA101) | ☐ |
-| ... | ☐ |
-
-### Adjustment for ALT AGENCY 2nd home / Investment
+### Adjustment of FNMA and FHLMC
 | Adjustment | Check |
 | --- | --- |
 | FICO/LTV Purchase Adjustments | ☐ |
-| ... | ☐ |
-
-### FHA — Base Price
-| Loan Program | Check |
-| --- | --- |
-| FHA 30 - 25 Year Fixed (301 & 325) | ☐ |
-| FHA 20 Year Fixed (320) | ☐ |
-| FHA 15 Year Fixed (315) | ☐ |
-| FHA 30 Year Fixed HB (301HB) | ☐ |
-
-### FHA — Adjustment
-| Adjustment | Check |
-| --- | --- |
-| FICO ≥700 | ☐ |
-| FICO 680-699 | ☐ |
-| FICO 660-679 | ☐ |
-| FICO 640-659 | ☐ |
-| FICO 620-639 | ☐ |
-| FICO 600-619 | ☐ |
-| FICO 580-599 | ☐ |
-| FICO 550-579 | ☐ |
-| No FICO Score | ☐ |
-| Loan Amount >=$100,000 <=$249,999 | ☐ |
-| Manufactured Home (Purchase/Rate-Term/Cashout) | ☐ |
-| Select (FICO ≥680 & ≥$250,000 & N/A on DPAs) | ☐ |
-| 3-4 Units | ☐ |
-
-### VA & USDA — Base Price
-| Loan Program | Check |
-| --- | --- |
-| VA 30 - 25 Year Fixed (401 & 425) | ☐ |
-| ... | ☐ |
-
-### VA & USDA — Adjustment
-| Adjustment | Check |
-| --- | --- |
-| ... (same FICO buckets as FHA, plus VA-specific rows) | ☐ |
+...
 ```
 
-**For QM sub-task with matrix-heavy programs** (Jumbo variants, MOSO-12076 format):
-
-```markdown
-## QA Test Case Checklist
-
-### Jumbo — Matrix
-| Eligibility Matrix | Check |
-| --- | --- |
-| Matrix row 1 (Purchase only) | ☐ |
-| Matrix row 2 (Purchase and Refinance) | ☐ |
-| Matrix row 3 | ☐ |
-| ... | ☐ |
-
-### Jumbo — Base Price and Adjustment
-- Base Price: ☐
-- Adjustment: ☐
-
-### Jumbo Pro — Matrix
-| Eligibility Matrix | Check |
-| --- | --- |
-| ... | ☐ |
-
-### Jumbo Pro — Base Price and Adjustment
-- Base Price: ☐
-- Adjustment: ☐
-
-### Jumbo Elite — Matrix
-### Jumbo Elite — Base Price and Adjustment
-### Jumbo Preferred — Matrix
-### Jumbo Preferred — Base Price and Adjustment
-```
-
-**For Non-QM sub-task** (since the body uses 3 sections + matrix table — checklist mirrors that):
-
+**Non-QM sub-task**:
 ```markdown
 ## QA Test Case Checklist
 
 ### Rate sheet
 | Item | Expected | Check |
 | --- | --- | --- |
-| Products parsed | 30yr Fixed, 30yr IO, 40yr Fixed, 40yr IO, 5/6 ARM | ☐ |
+| Products parsed | 30yr Fixed, 30yr IO, ... | ☐ |
 | Lock periods | 30 days | ☐ |
-| Rate range | 6.000% – 8.500% in 0.125% steps | ☐ |
-| Program variants | DSCR, DSCR Elite | ☐ |
-| Lender credit caps applied (Owner Occupied) | Max -2% | ☐ |
-| Lender credit caps applied (Investment + PP terms) | 0% / -1% / -1% / -2% | ☐ |
 
 ### Adjustment
 | Adjustment table | Check |
 | --- | --- |
 | FICO/LTV Purchase | ☐ |
-| FICO/LTV Refinance Rate-Term | ☐ |
-| Misc Adjustments | ☐ |
-| Value mapping (DSCR < 0.80 → DSCR < 0.75 etc.) | ☐ |
 
 ### Matrix && Validation
 | Field | Expected | Check |
 | --- | --- | --- |
 | Citizenship | US Citizen / PRA / NPRA / FN | ☐ |
-| Occupancy | Primary / Second Home / Investment | ☐ |
-| Loan term | 30 fixed / 30 IO / 40 fixed / 40 IO / 5/6 ARM | ☐ |
-| Document type | Full doc 12 mo / 24 mo | ☐ |
-| Min loan amount | $125K | ☐ |
-| Max loan amount | $3M | ☐ |
-| Property type | SFR / TH/PUD / Duplex / 2-4 Unit (≤80% LTV) / Condos | ☐ |
-| Min FICO | 660 (exclude FN) | ☐ |
-| Max DTI | 50% | ☐ |
-| DSCR ranges | < 0.75 / 0.75-1 / 1-1.25 / >1.25 | ☐ |
-| Cash Reserved | ≤$1M→3mo / $1-2M→6mo / >$2M→9mo / FN→12mo | ☐ |
-| Mortgage lates | No mortgage 1x30x12 | ☐ |
-| Prepayment Penalty Term | No PPP / 12/24/36 months PP | ☐ |
-| Interest Only | Purchase: FICO≥740 LTV≤80% / Refi: LTV≤75% | ☐ |
+... (one row per 14-field matrix entry)
 ```
 
-**For Correspondent sub-task** (single Task, no Epic):
-
-```markdown
-## QA Test Case Checklist
-
-### Programs to parse (from Wholesale → Correspondent)
-| Program | Check |
-| --- | --- |
-| Conventional including Home Ready and Home Possible | ☐ |
-| High balance and Jumbo | ☐ |
-| VA including VA IRRRL | ☐ |
-
-### Cross-reference verification
-| Item | Check |
-| --- | --- |
-| Same rate values as Wholesale parser | ☐ |
-| Same adjustment tables as Wholesale parser | ☐ |
-| Correspondent provider ID matches the lender record | ☐ |
-| Correspondent label appears correctly in pricing UI | ☐ |
+Post via:
+```
+tool: addCommentToJiraIssue
+cloudId, issueIdOrKey: <SUB_TASK_KEY>, commentBody: <markdown>, contentFormat: "markdown"
 ```
 
-**Posting the comment:**
+**Rules**: never invent a checklist row not in the body (re-generate if the body changes). Skip this step for the Epic — only sub-tasks (and standalone Correspondent Tasks) get it.
+
+## STEP 6 — reserved for flow clarity
+
+## STEP 7 — Correspondent (single Task, ADF)
+
+Ask 6 fields one at a time (pre-fill from extraction where possible): lender full name, Correspondent provider account ID, Correspondent label (e.g. "Loan Factory Direct - Newrez - CL1"), Wholesale parser cross-ref (auto-suggest from `lender-info.sh`), programs to parse (comma list), source ticket ID (optional).
+
+Title: `[QM] <Lender Name> - Parse Correspondent's rates`. Body (ADF): breadcrumb, Background ("<Lender> uses the same rate sheet for Wholesale and Correspondent..."), 5-col Specification table, Acceptance Criteria. Preview → confirm → create (no `parent`) → attach ratesheet → run Step 5.6's QA checklist (Correspondent template: programs-to-parse table + cross-reference-verification table) on this Task.
+
+## STEP 9 — Final report
 
 ```
-mcp__d4873f66-6c13-4695-be2b-dbd414d76d1d__addCommentToJiraIssue
-  cloudId, issueIdOrKey: <SUB_TASK_KEY>
-  commentBody: <markdown body from above templates>
-  contentFormat: "markdown"
-```
-
-**Important rules for the checklist:**
-
-1. **Source of truth = the sub-task body.** Don't invent items — every checklist row maps to something in the body (a program, an adjustment table, a matrix field). If the body says it's parsed, the checklist tests it.
-2. **Empty checkbox by default.** Use `☐` (or `- [ ]` task-list syntax). QA replaces with ✅ when verified, ❌ when mismatched.
-3. **Don't post checklist for the Epic.** Epic isn't where parsing is verified — only sub-tasks (which is where the actual rates/adjustments/matrix live). Skip the comment step for the Epic.
-4. **For Correspondent (single Task)**, post the checklist as a comment on the Task itself — same place as the body.
-
-### STEP 6 / 7 — (reserved for flow clarity)
-
-### STEP 8 — Correspondent (single Task)
-
-Ask 6 fields one at a time:
-1. Lender full name (pre-fill)
-2. Provider account ID for Correspondent
-3. Correspondent label (e.g. "Loan Factory Direct - Newrez - CL1")
-4. Wholesale lender cross-ref (auto-suggest)
-5. Programs to parse (free text comma list)
-6. Source ticket ID (optional)
-
-Preview → confirm → create one Task (no parent) → upload ratesheet → **also run Step 5.6 (test case comment) on this Task** using the Correspondent template.
-
-### STEP 9 — Final report
-
-```
-✓ Created in Jira:
+✓ Created in Jira (auto-assigned to Trung):
 
   Epic:        MOSO-15234   https://mosoteam.atlassian.net/browse/MOSO-15234
                             [Parse Non-QM] Logan Finance
 
-  Sub-task 1:  MOSO-15235   [Non-QM] Logan Finance - Parse Full Doc program       (14 attachments, ✓ test case comment)
-  Sub-task 2:  MOSO-15236   [Non-QM] Logan Finance - Parse Alt Doc program        (8 attachments, ✓ test case comment)
-  Sub-task 3:  MOSO-15237   [Non-QM] Logan Finance - Parse DSCR programs          (12 attachments, ✓ test case comment)
+  Sub-task 1:  MOSO-15235   [Non-QM] Logan Finance - Parse Full Doc program   (14 attachments, ✓ QA checklist)
+  Sub-task 2:  MOSO-15236   [Non-QM] Logan Finance - Parse Alt Doc program    (8 attachments, ✓ QA checklist)
+  Sub-task 3:  MOSO-15237   [Non-QM] Logan Finance - Parse DSCR programs      (12 attachments, ✓ QA checklist)
 
-Each sub-task has rates, adjustments, and a complete Matrix && Validation table
-ready for /new-parser. Ratesheet attached to the Epic. Each sub-task also has
-a QA test case checklist as a comment — QA fills ☐ with ✅ or ❌ as items are
-verified.
+Each sub-task has rates, adjustments, and a complete Matrix && Validation table ready
+for /new-parser. If any conflicts were surfaced, they're listed in the body — resolve
+before locking. If any program was Blocked-on-code-task, it has no sub-task — file that
+separately first.
 
-When you're ready, run:
+When ready:
   /new-parser MOSO-15234            (whole lender)
   /new-parser MOSO-15235            (one sub-task at a time)
 ```
@@ -996,369 +678,145 @@ Do NOT auto-invoke `/new-parser`.
 
 ---
 
-## UPDATE MODE pipeline (when argument is a Jira key)
-
-Triggered when the skill is called with a Jira key like `/parser-task-builder MOSO-12075`. The goal: update an existing ticket's body and attachments to reflect a newer ratesheet / matrix / guideline — while preserving any manual edits the user (or BA) made directly in Jira.
+## UPDATE MODE pipeline (argument is a Jira key)
 
 ```
-U.0 Detect & confirm  →  U.1 Fetch existing  →  U.2 Collect new files & detect changes  →
-U.3 Section diff with manual-edit detection  →  U.4 Per-section accept/reject/edit  →
-U.5 Attachment management (case-by-case)  →  U.6 Build new body  →
-U.7 Upload new attachments  →  U.8 Delete attachments marked for removal  →
-U.9 editJiraIssue with ADF body  →  U.10 Report
+U.0 Detect & confirm → U.1 Fetch existing → U.2 Collect new files & run Step 1.5 on them →
+U.3 Section diff with manual-edit detection → U.4 Per-section accept/reject/edit →
+U.5 Attachment management (case-by-case) → U.6 Build new ADF body → U.7 Upload new attachments →
+U.8 Delete attachments marked for removal → U.9 editJiraIssue with ADF body → U.9.5 Refresh QA comment → U.10 Report
 ```
 
 ### U.0 — Detect & confirm
-
 ```
 Detected Jira key: MOSO-12075 → UPDATE MODE.
-
-I'll fetch the existing ticket, then ask you for the new files (new ratesheet,
-new matrix, or new guideline). I'll detect any sections you've manually edited
-in Jira and ask before overwriting them. Attachments will be handled
-case-by-case (keep / replace / delete) per file.
-
-Proceed? [Y/cancel]
+I'll fetch the existing ticket, ask for the new files, detect any sections you've
+manually edited in Jira and ask before overwriting them, and handle attachments
+case-by-case (keep/replace/delete). Proceed? [Y/cancel]
 ```
 
 ### U.1 — Fetch existing task
-
 ```
-mcp__d4873f66-6c13-4695-be2b-dbd414d76d1d__getJiraIssue
-  cloudId, issueIdOrKey: <KEY>
-  fields: ["summary", "description", "issuetype", "parent", "attachment"]
-  responseContentFormat: "adf"   ← so we can detect inline media nodes
+tool: getJiraIssue
+cloudId, issueIdOrKey: <KEY>, fields: ["summary","description","issuetype","parent","attachment"]
+responseContentFormat: "adf"
 ```
-
-Parse the response:
-- `EXISTING.title`, `EXISTING.type` (Epic / Task), `EXISTING.parent_key` (if any)
-- `EXISTING.body_adf` — the current description as ADF
-- `EXISTING.body_text` — flattened markdown approximation for diffing
-- `EXISTING.attachments[]` — `[{id, filename, mimeType, size, created}, ...]`
-
-From the title, infer which template the ticket follows:
-- `[Parse QM] <Lender>` or `[Parse Non-QM] <Lender>` → Epic
-- `[QM] <Lender> - Parse ... programs` → QM sub-task (per-program template)
-- `[Non-QM] <Lender> - Parse ... program` → Non-QM sub-task (3-section template)
-- `[QM] <Lender> - Parse Correspondent's rates` → Correspondent
+Parse `title`, `type`, `parent_key`, `body_adf`, a flattened `body_text` for diffing, `attachments[]`. Infer the template from the title (`[Parse QM/Non-QM] <Lender>` → Epic; `[QM/Non-QM] <Lender> - Parse ... program(s)` → sub-task; `[QM] <Lender> - Parse Correspondent's rates` → Correspondent).
 
 ### U.2 — Collect new inputs
-
-Ask the user what changed:
-
-```
-What's new for this ticket?
-
-  a) Updated ratesheet         (new rates / new LLPAs)
-  b) Updated matrix            (new eligibility rules)
-  c) Updated guideline PDF     (full product profile refresh)
-  d) Updated portal URL or email metadata
-  e) Several of the above
-  f) Just fixing a typo / specific value
-```
-
-For each chosen category, ask for the input (same upfront checklist as create mode, but only the relevant fields). Then run **the same Step 1.5 auto-extract pass** on the new files — produces a fresh `EXTRACTION` object.
+Ask what changed: updated ratesheet / updated matrix / updated guideline PDF / updated portal-or-email metadata / several / just a typo. For each category, ask the same upfront-checklist fields as Create mode, then run **the full Step 1.5 pipeline** on the new files to get a fresh extraction.
 
 ### U.3 — Section diff + manual-edit detection
-
-Compare current ticket body section-by-section against (a) what's in the new `EXTRACTION` and (b) what the create-mode template would have generated originally.
-
-For each section (e.g. `# Rate sheet`, `# Adjustment`, `# Matrix && Validation` for Non-QM; per-program sections for QM):
-
-1. **Extract current section content** from `EXISTING.body_adf`.
-2. **Generate proposed section content** from new `EXTRACTION`.
-3. **Detect manual edits**: if current section has content that doesn't match either (a) the original template skeleton or (b) old extraction, flag it as `manual_edit_suspected`. Heuristics:
-   - Free-text paragraphs outside of expected template slots
-   - Bulleted notes/comments not produced by template
-   - Extra rows in the matrix table beyond the standard 14 fields
-   - Modified field values that look like deliberate edits (e.g. annotations like "(checked with underwriting 2025-04-01)")
-4. **Classify the section** as one of:
-   - `unchanged` — current matches proposed
-   - `changed_auto` — current matches template, proposed has new auto-extracted values → safe to update
-   - `changed_manual` ⚠️ — current has manual edits, proposed would overwrite them → REQUIRES CONFIRMATION
-   - `removed` — current has content, proposed has nothing → unlikely but report
-   - `added` — current has nothing, proposed has content → safe to add
-
-Show the user the classification summary:
-
-```
-─────────────────────────────────
-SECTION DIFF for MOSO-12075
-─────────────────────────────────
-  Rate sheet         changed_auto    Lock period: 30d → 30d, 45d
-                                     Rate range:  6.000-8.000 → 6.250-8.500
-
-  Adjustment         changed_auto    Misc Adjustments: +2 new rows
-                                     (Manufactured Home, Cash-Out)
-
-  Matrix && Validation
-    Citizenship      unchanged
-    Occupancy        unchanged
-    Min FICO         changed_auto    660 → 640
-    Cash Reserved    changed_manual ⚠️  Has a manual note added by user:
-                                       "Updated 2025-03-15 per Kurt's email re:
-                                       FN reserve requirement"
-    Mortgage lates   unchanged
-    Interest Only    unchanged
-    ... (10 more rows)
-─────────────────────────────────
-
-Found 2 auto changes and 1 section with suspected manual edits.
-How do you want to proceed?
-```
+Compare current body section-by-section against the new extraction. Classify each section `unchanged` / `changed_auto` (safe to update) / `changed_manual` ⚠️ (current has content that doesn't match the original template skeleton or old extraction — likely a hand-added note; NEVER silently overwrite) / `removed` / `added`. Show the classification summary before touching anything.
 
 ### U.4 — Per-section review
-
-Use `AskUserQuestion` with options:
-
-- **Accept all `changed_auto`, ask per `changed_manual`** (default — recommended)
-- **Accept all changes including manual** (overwrites manual edits)
-- **Per-section walk** — ask `accept / edit / reject` for every section that has any change
-- **Cancel update**
-
-For each `changed_manual` section, ALWAYS ask explicitly:
-
-```
-Section "Cash Reserved" has a manual note:
-  "Updated 2025-03-15 per Kurt's email re: FN reserve requirement"
-
-The new extraction would replace this with the auto-extracted value from the
-new guideline. What do you want?
-
-  a) Keep the manual note unchanged
-  b) Replace with auto-extracted value (discard manual note)
-  c) Merge — keep both (auto-extracted value + your manual note as a sub-bullet)
-  d) Show me the proposed new value before deciding
-```
+`AskUserQuestion`: accept all `changed_auto` + ask per `changed_manual` (default) / accept all including manual / per-section walk / cancel. For each `changed_manual` section, always ask explicitly with options keep / replace / merge / show-me-first.
 
 ### U.5 — Attachment management (case-by-case)
+List existing attachments with metadata; for each, ask keep / replace / delete / skip-review-treat-as-keep. List new unmatched files to upload.
 
-List all existing attachments with metadata:
+### U.6 — Build the new body
+Same ADF structure as Create mode. Skipped/rejected sections pass through from `EXISTING.body_adf` untouched. Merged sections combine auto value + manual note. Preserve original section order.
 
-```
-Existing attachments on MOSO-12075:
-  1. NON_QM_Wholesale_Rate_Sheet_2025-04-04.pdf    (392 KB, attached 2025-04-04)
-  2. matrix-citizenship.png                          (45 KB, attached 2025-04-04)
-  3. matrix-occupancy.png                            (38 KB, attached 2025-04-04)
-  4. adj-fico-ltv-purchase.png                       (153 KB, attached 2025-04-04)
-
-For each, what do you want?
-```
-
-Ask `AskUserQuestion` for each file:
-
-- **Keep** (no change)
-- **Replace** with new file (user provides path)
-- **Delete**
-- **Skip review** (treat as keep)
-
-Also list NEW files to upload from the new folder (any file in the user-provided new folder that doesn't have a matching name in EXISTING.attachments).
-
-### U.6 — Build new body
-
-Construct the new body the same way as create mode:
-1. Render markdown with `<<<SCREENSHOT:section:filename.png>>>` placeholders.
-2. Skipped sections (rejected by user in U.4) → leave EXISTING content untouched (extract from EXISTING.body_adf and pass through).
-3. Merged sections (option `c` in U.4) → combine auto value + manual note.
-4. Reordering: preserve the original section order — don't shuffle.
-
-### U.7 — Upload new attachments
-
-For each file user marked as "replace" or "new":
-- Upload via curl to `$JIRA_BASE/rest/api/3/issue/<KEY>/attachments`
-- Capture new attachment ID
-
-For attachments that are kept (no change), preserve the existing IDs for ADF media references.
-
-### U.8 — Delete attachments marked for removal
-
-For each file user marked `delete` (and each old file being `replace`d):
+### U.7/U.8 — Upload new attachments, delete removed ones
+Same curl patterns as Create mode Step 5.5, plus:
 ```bash
-curl -s -u "$JIRA_EMAIL:$JIRA_API_TOKEN" \
-  -X DELETE \
-  "$JIRA_BASE/rest/api/3/attachment/<attachment_id>"
+curl -s -u "$JIRA_EMAIL:$JIRA_API_TOKEN" -X DELETE "$JIRA_BASE/rest/api/3/attachment/<attachment_id>"
 ```
 
-### U.9 — Update via editJiraIssue with ADF body
+### U.9 — Update via editJiraIssue
+Convert the new body to ADF (real media nodes, not text placeholders — same 2-pass rule as Create mode), `editJiraIssue` with `contentFormat: "adf"`. **Never change title, issue type, or parent** — update mode only touches description and attachments.
 
-Convert the new markdown body to ADF, replacing each `<<<SCREENSHOT:...>>>` placeholder with a `mediaSingle` node pointing at the correct attachment ID (new uploads OR preserved IDs from U.7).
-
-```
-mcp__d4873f66-6c13-4695-be2b-dbd414d76d1d__editJiraIssue
-  cloudId, issueIdOrKey: <KEY>
-  additional_fields: { "description": <ADF JSON> }
-  contentFormat: "adf"
-```
-
-**Do NOT change** title, issue type, or parent. Update mode only touches description and attachments.
-
-### U.9.5 — Refresh test case comment (only if body changed)
-
-If U.4 resulted in any section actually being updated (not just unchanged + rejected), post a new test case comment on the ticket using the **updated** body's contents (programs, adjustment tables, matrix fields). Do NOT delete the old test case comment — leave it for history so QA can see what changed:
-
-```
-mcp__d4873f66-6c13-4695-be2b-dbd414d76d1d__addCommentToJiraIssue
-  cloudId, issueIdOrKey: <KEY>
-  commentBody: |
-    ## QA Test Case Checklist (refreshed <YYYY-MM-DD>)
-
-    > This checklist was regenerated after a body update. The previous
-    > checklist comment is still above for reference.
-
-    <regenerated checklist tables, same format as STEP 5.6>
-  contentFormat: "markdown"
-```
-
-If body changes were trivial (only typos, no item changes), skip this step — old checklist still applies.
+### U.9.5 — Refresh the QA checklist comment (only if the body actually changed)
+Post a new comment regenerated from the updated body; don't delete the old one — leave it for history. Skip if changes were typo-only.
 
 ### U.10 — Final report
-
 ```
 ✓ Updated MOSO-12075
-
-Sections updated:
-  ✓ Rate sheet         (Lock period + Rate range refreshed)
-  ✓ Adjustment         (2 new Misc rows added)
-  ✓ Min FICO           (660 → 640)
-  ⊙ Cash Reserved      (preserved your manual note)
-
-Attachments:
-  ✓ Replaced: NON_QM_Wholesale_Rate_Sheet → 2025-05-04 version
-  + Added: matrix-cash-reserved-updated.png
-  - Deleted: outdated-adj-misc.png
-
-URL: https://mosoteam.atlassian.net/browse/MOSO-12075
-
-If this is part of a re-parse cycle, run /new-parser MOSO-12075 to rebuild
-the parser code against the updated body.
+Sections updated: ✓ Rate sheet (Lock period + Rate range refreshed) ⊙ Cash Reserved (preserved your manual note)
+Attachments: ✓ Replaced ratesheet → 2025-05-04 version; + Added matrix-cash-reserved-updated.png
+If this is part of a re-parse cycle, run /new-parser MOSO-12075 to rebuild against the updated body.
 ```
 
 ---
 
 ## Pitfalls to Catch
 
-0. **Don't ask what you can read.** Always run Step 1.5 (auto-extract) before asking matrix questions. If a value is visible in the ratesheet, matrix screenshot, or guideline PDF, pre-fill it and let the user review — don't make them type it.
-0a. **UPDATE MODE: never silently overwrite manual edits.** Section diff must detect content that doesn't match the original template skeleton and flag it as `changed_manual` ⚠️. Always ask the user before overwriting flagged sections. Loss of manual notes is the #1 user complaint with this kind of tool.
-0b. **UPDATE MODE: never change title, type, or parent.** Update mode only touches description and attachments. If user wants to change title/type/parent, they edit in Jira directly or recreate the ticket.
-0c. **UPDATE MODE: confirm attachment deletion explicitly.** Deletes are irreversible. Always show the filename + size + date before each delete and require user confirmation. Default to "keep" if user is unsure.
-0d. **Test case checklist must derive from body, not from the lender's portal/web.** Every row in the QA checklist must correspond to something explicitly listed in the sub-task body — a program in the Rate sheet section, an adjustment table in the Adjustment section, or a field in the Matrix table. Never add a checklist row for something not in the body. If an item is in the body but not the checklist, that's a bug — re-generate.
-0e. **No test case checklist on the Epic.** The Epic doesn't hold the parsing facts — only sub-tasks do. Only Tasks (sub-tasks under an Epic AND standalone Correspondent Tasks) get the comment.
-0a. **Auto-extraction is fallible.** Always show the extracted matrix as a preview before submission. Mark low-confidence fields with ⚠️. Never auto-submit without user review.
-1. **Empty matrix table.** Never let a sub-task body have a Matrix section with blank rows. If auto-extract found nothing AND the user can't fill it manually, run the fetch-from-URL flow or warn loudly and ask whether to proceed anyway. Applies to both Non-QM (mandatory) and QM (when the per-program "type matrix?" gate is `y`).
-2. **QM matrix gate defaults.** Agency programs (FNMA, FHLMC, USDA-within-VA&USDA, FHA Streamline & VA IRRRL) default to `Use system validations` only — skip the matrix interview. Non-agency / overlay programs (ALT AGENCY, Jumbo variants, custom FHA overlays) default to running the matrix interview. Always confirm with the user before skipping.
-3. **Inline-screenshot 2-pass ordering.** Always create the ticket first, upload attachments second, edit the description third. If you try to inline before upload, the attachment IDs don't exist and ADF media nodes break.
-4. **ADF media node `id` correctness.** The `id` must match the attachment response's `id` field exactly. If you upload `image.png` and the response says `"id": "94627"`, the ADF media attrs `id` must be `"94627"`. Mismatch = broken image render in Jira.
-5. **Provider ID typos.** Echo digits back in the preview. Validate length and numeric.
-6. **Sub-task missing `parent`.** Always pass `parent: <EPIC_KEY>` for QM/Non-QM sub-tasks.
-7. **QM vs Non-QM template mismatch.** QM = per-program sections (with optional typed matrix per program). Non-QM = 3 sections + always-typed matrix table. Don't mix.
-8. **Title prefix mismatch.** `[Parse QM]`/`[Parse Non-QM]` for Epic. `[QM]`/`[Non-QM]` for sub-tasks. `[QM] ... - Parse Correspondent's rates` for Correspondent. Auto-derive from type — don't ask.
-9. **Issue type mismatch.** Epic for parent, Task for everything else (sub-tasks AND Correspondent).
-10. **JIRA_EMAIL/API_TOKEN missing.** Tickets create via MCP (OAuth). Attachments need curl + env vars. Without env vars, the 2-pass inline flow can't complete — fall back to creating tickets with `(screenshots not attached)` placeholders and warn loudly. Don't crash.
-11. **One question at a time.** Never batch. Never show a wall of fields. `AskUserQuestion` per field. Pre-fill suggestions from earlier answers.
-12. **Don't auto-chain into `/new-parser`.** Print URLs and stop.
-
----
-
-## Example walkthrough (Non-QM, with guideline fetch)
-
-User: `/parser-task-builder ~/Downloads/logan-finance-jira/`
-
-```
-[Skill] I'll help you build the Jira tickets for this lender. …
-        I see a folder with ratesheet + screenshots + a guideline.pdf. Looking inside.
-
-[1/9] Ratesheet: NON_QM_Wholesale_Rate_Sheet_2025-04-04.pdf
-      Candidate lender: "Logan Finance"
-      lender-info.sh: not yet registered → new parser
-      Guideline PDF: guideline.pdf (will use if needed for matrix)
-      Screenshot folders: rate-sheet/, adjustment/, matrix/
-
-[2/9] Type: Non-QM (high — "DSCR", "Bank Statement", "Non-QM" in ratesheet)
-      Confirm? → Non-QM
-
-[3/9] Epic fields:
-      • Lender full name? → Logan Finance Rates. Inc.
-      • Provider ID?      → 32280617046
-      • Sender name?      → Kurt Lehrmann
-      • Sender address?   → klehrmann@loganfinance.com
-      • Subject?          → Today's Wholesale Non-QM Rates from Logan
-      Preview Epic → confirm → MOSO-15234 created, ratesheet attached ✓
-
-[4/9] How many sub-tasks? → 3
-      Title 1? → Full Doc program
-      Title 2? → Alt Doc program
-      Title 3? → DSCR programs
-
-[5/9] SUB-TASK 1: "[Non-QM] Logan Finance - Parse Full Doc program"
-
-      Rate sheet section:
-        Lock period? → 30 days
-        Variants? → (single, skip)
-        Lender credit caps? → Yes
-          Caps:
-            Owner occupied → max -2%
-            Investment + PPT No → 0% / 12mo → -1% / 24mo → -1% / 36mo → -2%
-
-      Adjustment section:
-        Value mapping needed? → No
-
-      Matrix && Validation section:
-        How to fill the matrix?
-          a) Walk through each field
-          b) Paste full matrix text
-          c) Fetch from guideline URL
-        → c
-
-        Guideline URL? → (user pastes Logan Finance guideline URL)
-        Fetching… extracted matrix:
-          Citizenship: US Citizen, PRA, NPRA, FN
-          Occupancy:   Primary, Second Home, Investment
-          Loan term:   30 fixed, 30 IO, 40 fixed, 40 IO (use 30 rate), 5/6 ARM
-          Doc type:    Full doc 12 months / 24 months
-          Loan amt:    $125K - $3M
-          Property:    SFR, TH/PUD, 2-4 unit (LTV ≤80%), Condos, Non-Warrantable
-          Min FICO:    660 (excl. FN)
-          DTI:         50%
-          Cash res:    ≤$1M → 3mo / $1-2M → 6mo / >$2M → 9mo / FN: 12mo
-          Lates:       No mortgage 1x30x12
-          PPT:         No PPP / 12/24/36 months PP (Investment only)
-          IO:          Purchase: FICO≥740, LTV≤80% / Refi: LTV≤75%
-        Looks right? → Y
-
-      Render preview → confirm → MOSO-15235 created as child of MOSO-15234
-      Uploaded 14 screenshots ✓
-
-[5/9] SUB-TASK 2: "[Non-QM] Logan Finance - Parse Alt Doc program"
-      ... (same flow)
-
-[5/9] SUB-TASK 3: "[Non-QM] Logan Finance - Parse DSCR programs"
-      Variants? → DSCR, DSCR Elite
-      Adjustment value mapping? → Yes (DSCR < 0.80 → DSCR < 0.75, etc.)
-      Matrix fill → walk-through (no DTI, has DSCR ranges)
-      ... → MOSO-15237 created ✓
-
-[9/9] ✓ Done.
-      Epic: MOSO-15234
-      Sub-task 1 (Full Doc):  MOSO-15235
-      Sub-task 2 (Alt Doc):   MOSO-15236
-      Sub-task 3 (DSCR):      MOSO-15237
-
-      Ready: /new-parser MOSO-15234
-```
+0. **Don't ask what you can read.** Always run Step 1.5 before matrix questions.
+0a. **Auto-extraction is fallible AND sample-capped.** Always show the extracted matrix as a preview. ⚠️-flag low-confidence fields, and separately flag anything past the 6-page/40-row sampling window as unverified, not just "not found".
+0b. **UPDATE MODE never silently overwrites manual edits.** Flag `changed_manual`, always ask.
+0c. **UPDATE MODE never changes title/type/parent.**
+0d. **UPDATE MODE confirms attachment deletion explicitly** — irreversible.
+0e. **QA checklist derives from the body, never invented.** No row without a matching body item.
+0f. **No QA checklist on the Epic.**
+1. **Empty matrix table.** Never ship a Matrix section with blank rows — run the fetch-from-URL flow or warn loudly and get explicit confirmation to proceed anyway.
+2. **QM matrix gate defaults + say why in the prompt itself**, not buried in this doc — see 5.2a.
+3. **Screenshot 2-pass ordering.** Create → upload → edit-with-real-media-nodes, in that order. `[INSERT IMAGE: ...]` must never be the final state of a shipped ticket.
+4. **ADF media node `id` must match the upload response's `id` exactly.**
+5. **Provider ID typos** — echo digits in preview; `TBD` is fine, a wrong number isn't.
+6. **Sub-task missing `parent`.**
+7. **QM vs Non-QM template mismatch** — don't mix.
+8. **Title prefix.** `[Parse QM]`/`[Parse Non-QM]` for Epic; `[QM]`/`[Non-QM]` for sub-tasks; `[QM] ... - Parse Correspondent's rates` for Correspondent. Auto-derive, never ask.
+9. **Issue type** — Epic for parent, Task for everything else.
+10. **JIRA_EMAIL/JIRA_API_TOKEN missing** → tickets still create via MCP OAuth; attachments/inlining skip with a loud warning, don't crash.
+11. **One question at a time.**
+12. **Never auto-chain into `/new-parser`.**
+13. **Registration gap (Step 1) must be surfaced, not silently passed through** — a ticket for an unregistered `LenderType` is real groundwork but `/new-parser` will stall on it later if nobody flags it now.
+14. **`? new` program types (Step 1.7) never get a normal sub-task** — either "Block on code-task" (no sub-task, a separate code-task recommendation instead) or explicitly "Skip". Filing a sub-task for a program the engine structurally can't model yet just recreates the `MOSO-16499` situation.
+15. **No ratesheet in hand is a real branch, not a stall** — Step 0's request-upload/download flow, don't just wait silently.
+16. **Literal `&&` and stray spaces in program names are typos, not house style** — write "and", and don't leave a trailing space before a word (e.g. "ALT AGENCY Second Home/Investment", not "...Second Home/ Investment").
 
 ---
 
 ## Rules of Operation
 
-1. **Read first, ask second.** Step 1.5 auto-extracts from ratesheet + matrix screenshots + guideline PDF before any matrix questions. Never ask the user for a value that's in one of their files.
-2. **Sub-task body must be complete.** Rates described or attached, adjustments described or attached, matrix table FULLY TYPED OUT. Empty matrix = bug.
-3. **QM and Non-QM bodies are different.** QM = per-program sections (with optional typed matrix per program — gated by the agency/overlay default). Non-QM = Rate sheet / Adjustment / Matrix && Validation with always-typed 14-field matrix.
-4. **Always show extraction before submission.** The auto-extracted matrix is presented as a preview with three options: accept all / edit a row / re-extract. ⚠️-flag any low-confidence fields.
-5. **One question at a time for what's NOT extractable.** Use `AskUserQuestion` per field for provider ID, email metadata, sub-task split. Never batch.
-6. **Pre-fill from earlier answers and extraction.** Lender name from ratesheet header, type from auto-detect, matrix from screenshots/guideline, programs from sub-task title.
-7. **Always confirm before sending.** Render the Epic and each sub-task body preview. Provider IDs especially — echo digits back.
-8. **Sub-task `parent` is mandatory.** Verify `EPIC_KEY` non-empty before each sub-task create.
-9. **Markdown for create, ADF for edit.** Pass 1 `createJiraIssue` uses `contentFormat: "markdown"` with placeholders. Pass 2 `editJiraIssue` uses `contentFormat: "adf"` to inline media nodes.
-10. **Attachments fail open.** No `JIRA_EMAIL`/`JIRA_API_TOKEN` → ticket created with `(screenshots not attached)` placeholders, warn user.
-11. **Never auto-chain into `/new-parser`.** Print URLs and stop.
-12. **Always post a test case checklist comment** after creating any sub-task (or Correspondent Task). Skip only for the Epic. Checklist content derives from the sub-task body.
+1. Read first, ask second — Step 1.5 before any matrix question.
+2. Sub-task body must be complete: rates, adjustments, and the FULL typed matrix.
+3. QM and Non-QM bodies differ — per-program (gated) vs 3-section-always-typed.
+4. Always show the extraction before submission — accept all / edit a row / re-extract.
+5. One question at a time for what's not extractable.
+6. Pre-fill from earlier answers and extraction.
+7. Always confirm before sending — full preview, provider IDs echoed.
+8. Sub-task `parent` mandatory — verify `EPIC_KEY` non-empty first.
+9. Markdown/plain-text placeholders for Pass 1, ADF media nodes for Pass 2.
+10. Attachments fail open — never crash on missing credentials.
+11. Never auto-chain into `/new-parser`.
+12. Always post the QA checklist after any sub-task/Correspondent Task — never on the Epic.
+13. Both registration checks (lender-info.sh AND LenderType.java) run every time, in Step 1, before anything else.
+14. `? new` vocabulary items never silently become a sub-task.
+15. English in Jira, bilingual in chat. No codebase jargon in any body a QA engineer reads.
+16. ADF as a native JSON object, never stringified.
+17. Auto-assign Trung's accountId on every create.
+
+---
+
+## Folder aliases (screenshot pickup)
+
+```
+<lender>-jira/
+├── ratesheet.pdf / .xlsx / .xlsm / .xls
+├── guideline.pdf                 (optional — fallback matrix source)
+├── rate-sheet/  adjustment/  matrix/     screenshots
+└── <per-program subfolders>/     (QM: fannie-mae/, freddie-mac/, fha/, va/, usda/,
+                                    fha-streamline-va-irrrl/, alt-agency/, jumbo*/ ;
+                                    Non-QM: dscr/, bank-statement/, 1099/, itin/,
+                                    asset-depletion/, non-agency-jumbo/, investor-cash-flow/)
+```
+
+Alias map: `fannie-mae|fnma|fannie`→FANNIE MAE; `freddie-mac|fhlmc|freddie`→FREDDIE MAC; `fnma-fhlmc-adjustment|agency-adjustment`→"Adjustment of FNMA and FHLMC"; `alt-agency*`→ALT AGENCY Second Home/Investment; `fha`,`va`,`usda`,`va-usda`→as named; `fha-streamline|va-irrrl|streamline-irrrl|fha-streamline-va-irrrl`→FHA Streamline & VA IRRRL; `jumbo*`→Jumbo family; `dscr`→DSCR; `bank-statement|bankstatement|bank-stmt`→Bank Statement; `1099|ten99`→1099; `itin`→ITIN; `asset-depletion|asset-dep`→Asset Depletion; `non-agency-jumbo|nonagency-jumbo|non-agency`→Non-Agency Jumbo; `investor-cash-flow|icf|investor-cf`→Investor Cash Flow.
+
+Unknown folder → ask the user to point at the right one. Missing folder for a selected program → ask: skip / point elsewhere / continue with no attachments.
+
+---
+
+## Quick reference — ADF node helpers
+
+**Paragraph:** `{"type":"paragraph","content":[{"type":"text","text":"Hello"}]}`
+**Bold text:** `{"type":"text","text":"Bold part","marks":[{"type":"strong"}]}`
+**Heading 3:** `{"type":"heading","attrs":{"level":3},"content":[{"type":"text","text":"Specification"}]}`
+**Info panel (breadcrumb only):** `{"type":"panel","attrs":{"panelType":"info"},"content":[{"type":"paragraph","content":[{"type":"text","text":"Parser > AmWest Funding"}]}]}`
+**Note panel (image placeholder, Pass 1 only — becomes a mediaSingle in Pass 2):** `{"type":"panel","attrs":{"panelType":"note"},"content":[{"type":"paragraph","content":[{"type":"text","text":"<<<SCREENSHOT:matrix:fannie-mae-eligibility.png>>>"}]}]}`
+**Bullet list:** `{"type":"bulletList","content":[{"type":"listItem","content":[{"type":"paragraph","content":[{"type":"text","text":"..."}]}]}]}`
+**Media (post-upload, Pass 2):** `{"type":"mediaSingle","attrs":{"layout":"center"},"content":[{"type":"media","attrs":{"type":"file","id":"<attachment_id>","collection":""}}]}`
+**5-col spec table row:** `{"type":"tableRow","content":[{"type":"tableCell","attrs":{},"content":[{"type":"paragraph","content":[{"type":"text","text":"1"}]}]}, ...]}` (header row uses `tableHeader` instead of `tableCell`)
+**Full table skeleton:** `{"type":"table","attrs":{"isNumberColumnEnabled":false,"layout":"default"},"content":[{"type":"tableRow","content":[<tableHeader cells>]},{"type":"tableRow","content":[<tableCell cells>]}]}`

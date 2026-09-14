@@ -5,6 +5,8 @@ description: Investigate an issue reported in an email thread end-to-end. Reads 
 
 # Email Thread Investigator
 
+> **House rule — docs and working files.** Per-task working files (specs, plans, test cases/results, screenshots, review notes) go ONLY to `/Users/trungthach/IdeaProjects/docs/changes/<KEY>/` (workspace, outside git) — never inside moso, moso-pricing, packs, base or moso-configuration, and never as `docs/changes/`, `docs/superpowers/` or `MOSO-xxxxx/` folders in a repo. Lender parser knowledge lives in `moso-pricing/docs/lenders/<slug>/` (`README.md` reference, `history.md` dated changes, `nonqm.md` Non-QM); after any parser change update that folder in the same commit. Contract: `moso-pricing/docs/lenders/README.md`.
+
 A guided workflow that turns an email-reported issue into a code-grounded analysis and (optionally) a well-written Jira ticket. Follow the steps in order. Do not skip the synthesis step.
 
 ---

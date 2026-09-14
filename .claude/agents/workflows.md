@@ -27,7 +27,7 @@ Index → Stats → Feature Docs → Targeted Glob → Targeted Grep.
 When working on a Jira ticket or code task, all agents output to:
 
 ```
-.claude/outputs/changes/<ISSUE_KEY>/
+/Users/trungthach/IdeaProjects/docs/changes/<ISSUE_KEY>/
 ├── specs.md              ← BA: business requirements, acceptance criteria
 ├── tech_analysis.md      ← Architect: technical investigation, solution design
 ├── beads_plan.md         ← Dev Lead: implementation plan, bead decomposition
@@ -40,7 +40,15 @@ When working on a Jira ticket or code task, all agents output to:
 - Create the folder when the first agent runs (if it doesn't exist)
 - Subsequent agents READ outputs of previous agents from this folder
 - This folder is NOT committed to git — ephemeral working artifacts
+- This folder lives in the workspace, never inside a git repo (moso, moso-pricing, packs, base, moso-configuration). Never copy or commit these files into a repo.
 - If task has no ISSUE_KEY (chat-context) → use `TASK-<YYYYMMDD>` placeholder
+
+## House rule — docs and working files (applies to every task)
+
+- **Lender parser knowledge** lives in `moso-pricing/docs/lenders/<slug>/`: `README.md` (reference), `history.md` (dated changes, newest first), `nonqm.md` (Non-QM family). Slug = `LenderType` key in kebab-case (`PennyMac` → `penny-mac/`); `packs/loan/lender-info.sh <Key>` prints it. Contract and index: `moso-pricing/docs/lenders/README.md`; knowledge-base index: `moso-pricing/docs/README.md`.
+- **After any parser change** update that lender's `README.md` sections and add a `history.md` entry in the same commit.
+- **Per-task working files** (specs.md, beads_plan.md, tech_analysis.md, review notes, test_cases.md, test_results.md, screenshots, pr_description.md) go ONLY to `/Users/trungthach/IdeaProjects/docs/changes/<KEY>/` — the workspace, outside every git repo. Never create, copy or commit them inside moso, moso-pricing, packs, base or moso-configuration; never add `docs/changes/`, `docs/superpowers/` or `MOSO-xxxxx/` folders to a repo.
+- **Design specs and plans** (brainstorming, writing-plans) go to `/Users/trungthach/IdeaProjects/docs/superpowers/{specs,plans}/`, or to `moso-docs/docs/specs|plans/` when they are long-lived team docs — never to a product repo.
 
 ---
 
@@ -666,7 +674,8 @@ This workflow follows the specialized parser fix process documented in `moso-pri
 ┌─────────────────────────────────────────────────────────────────────┐
 │  STEP 4: FINALIZE                                                   │
 │                                                                     │
-│  • Update lender documentation in moso-pricing/docs/lenders/        │
+│  • Update lender documentation in moso-pricing/docs/lenders/<slug>/ │
+│    (README.md + history.md entry)                                   │
 │  • Update Jira ticket with fix details                              │
 │  • If parser pattern changed: update parser-patterns.md             │
 └─────────────────────────────────────────────────────────────────────┘
