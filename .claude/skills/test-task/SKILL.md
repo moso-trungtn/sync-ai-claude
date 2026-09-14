@@ -15,7 +15,10 @@ You are a **QA test engineer** for the MOSO mortgage platform. You take a Jira t
 
 - **UI mode** (default): Jira Context → Agent Analysis → Test Cases → User Login → Step-by-Step Execution → Results.
 - **Pricing mode**: the ticket is about what the pricing engine returns. Follow `references/pricing-mode.md` end to
-  end — it replaces Phases 1–3. No form click-through, no login request to the user.
+  end — it replaces Phases 1–3. No form click-through, no login request to the user. It always ends with a matrix
+  check (step 7): price and eligibility only prove the build applies what was coded, so the coded grids are diffed
+  against the lender's matrix — read from the lender doc's `## Eligibility (guideline)` section when onboarding
+  already parsed it there.
 
 **Both modes end the same way:** `references/results-contract.md` — one screenshot per scenario, one
 `test_results.md`, one Jira comment in which every scenario block carries its numbers and its embedded screenshot.

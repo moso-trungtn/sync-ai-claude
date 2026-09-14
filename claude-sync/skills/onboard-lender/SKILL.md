@@ -184,6 +184,12 @@ Skill("test-task", "<EPIC_KEY or each SUB_TASK_KEY>")
 ```
 Runs scenario-by-scenario against the now-deployed build, screenshots each, comments on Jira per [[feedback_test_report_scenario_with_screenshot]]. Leaves the ticket "In Progress" — never auto-Done, per [[feedback_jira_no_auto_done]].
 
+Its step 7 (matrix check) closes the loop this pipeline opens at Step 1c: the matrix fetched there went into
+`/parser-task-builder` to be extracted, and nothing verified the built `validations()` against it. Hand the Step 1c
+matrix path through, and make sure `/parser-task-builder` wrote the parsed matrix into
+`moso-pricing/docs/lenders/<slug>/README.md` → `## Eligibility (guideline)` — that section is what `/test-task`
+reads, so the audit is a diff against the doc rather than a second extraction.
+
 ---
 
 ## Final report

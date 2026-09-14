@@ -51,6 +51,22 @@ ineligible : <program> -> <exact reason>{noformat}
 A form / workflow scenario puts the observed text (message, field values, row) inside the `{noformat}` block instead
 of pricing lines. A FAIL block keeps the shape: `- FAIL` in the title and `Expected: … / Actual: …` lines.
 
+## Matrix check block
+
+Pricing mode always carries one, right after the last scenario (see `pricing-mode.md` step 7). It is a
+verdict on the transcription, not on the deploy, so it stays even when every scenario passed:
+
+```
+*Matrix check - <matrix file(s) and their dates> - MATCHES | <n> MISMATCH(ES)*
+{noformat}<grid>                       <rows x bands x purposes>   match | <the differing cell, matrix vs code>
+overlays: <each footnote rule checked>  match | <what differs>
+not enforced (no field to carry it): <rule> ; <rule>{noformat}
+```
+
+A mismatch here is a finding in its own right - the prices can be perfect while the grid denies the
+wrong loans. Say which source was used: the lender doc's `## Eligibility (guideline)` section, or the
+matrix PDF when that section did not exist yet.
+
 ## Jira comment
 
 ```
@@ -61,6 +77,9 @@ Environment: staging www.viet18.com, <build: commit or deploy note>, <Lender> ra
 
 <S2 block>
 …
+
+<matrix check block>
+
 Note: <defaults assumed; one-reason-per-program caveat; what staging cannot show and the unit test that pins it>.
 ```
 
@@ -87,6 +106,9 @@ Do not transition the issue.
 
 ## Scenarios
 <S1 block> … <Sn block>      (screenshot line = `screenshots/S<n>_<slug>.png`)
+
+## Matrix check
+<the same block; pricing mode only>
 
 ## Notes
 <same Note as the comment, plus anything that only matters to the next tester: toggles, stale data, UI quirks>

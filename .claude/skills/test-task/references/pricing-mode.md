@@ -7,7 +7,8 @@ results contract (`references/results-contract.md`): per-scenario blocks with th
 no form click-through and nobody is asked to log in.
 
 **What this proves:** the build running on staging prices the reported scenario the way the lender's engine does,
-and every rule that was added or changed releases on its own control. The local harness (check-lender-rate,
+every rule that was added or changed releases on its own control, and the rules that were coded match the lender's
+own matrix (step 7 — the price and eligibility steps alone cannot catch a matrix transcribed wrong). The local harness (check-lender-rate,
 `RunPricingOp`, `*EligibilityTest`) runs local code and cannot prove a deploy.
 
 ## Steps
@@ -48,10 +49,29 @@ and every rule that was added or changed releases on its own control. The local 
    *Pricing adjustment* table into view and save `$CHANGES_DIR/<KEY>/screenshots/S<n>_<slug>.png`. For an
    ineligible-program scenario the screenshot is the results list proving the program is absent. Details in
    `references/results-contract.md`.
-7. **Record.** `$CHANGES_DIR/<KEY>/test_cases.md` and `test_results.md` (per-scenario blocks per the results
+7. **Matrix check — always, and never skipped because the prices matched.** Steps 1-6 prove the deployed
+   build applies *what was coded*; they say nothing about whether what was coded matches the lender's
+   matrix. A grid transcribed wrong passes every one of them. So before writing the comment:
+   - Read `moso-pricing/docs/lenders/<slug>/README.md` → `## Eligibility (guideline)`. When an onboarding
+     run already parsed the matrix into that section, **that section is the source** — compare
+     `validations()` against it, and do not re-fetch anything.
+   - When the section is missing, find the matrix: the lender folder, then
+     `$CHANGES_DIR/<KEY>/attachments/`, then the lender's Drive folder via
+     `~/.claude/skills/check-lender-rate/scripts/lender-guidelines.py --lender <LenderType>`. Follow
+     whatever matrix sits in that Drive folder — theLender's matrix and guideline do not move for a
+     year, so a matrix older than the ratesheet is normal and is not itself a finding.
+   - `pdftotext -layout <matrix>.pdf` and diff **every** grid cell (FICO tier x loan band x purpose)
+     plus each footnote overlay against the `ValidateCalculator` entries. Sort anything unmatched into
+     **a real gap** (a rule moso could enforce but doesn't, or a wrong cell -> a finding in the comment)
+     or **no field to carry it** (declining market, acreage, gift funds, non-occupant co-borrower -> a
+     row in the doc's table, not a bug).
+   - Write the result back into `## Eligibility (guideline)` when that section did not exist, so the
+     next run reads it instead of repeating the audit.
+
+8. **Record.** `$CHANGES_DIR/<KEY>/test_cases.md` and `test_results.md` (per-scenario blocks per the results
    contract), kept in `$CHANGES_DIR/<KEY>/` (the workspace folder `/Users/trungthach/IdeaProjects/docs/changes/<KEY>/`)
    — never copied into or committed to a product repo.
-8. **Jira.** Attach the screenshots, post the results-contract comment (or `PUT` over this run's earlier results
+9. **Jira.** Attach the screenshots, post the results-contract comment (or `PUT` over this run's earlier results
    comment), verify the render shows one image per scenario. Status stays In Progress.
 
 ## The scenario block in this mode
