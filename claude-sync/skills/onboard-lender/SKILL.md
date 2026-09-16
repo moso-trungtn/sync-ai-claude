@@ -115,7 +115,7 @@ Send all three in **one message, one batch** of Agent tool calls (they're indepe
 > Get today's ratesheet for "<Lender>" if one exists. Try `cd $MOSO_REPO_ROOT/packs/loan && ./download-ratesheet.sh "<Lender>" --no-detect` first. If that fails, check `curl -I https://storage.googleapis.com/lender-rate-email/<LenderType>` (see [[ratesheet_email_gcs_object_last_routed]]) for whether mail has ever routed for this lender at all. Report the resolved local file path if you got one, or exactly what's missing (no account/credential yet vs. a download error vs. never been routed).
 
 **1c — Fetch matrix + guideline** (prompt sketch):
-> Find "<Lender>"'s Non-QM product guideline / eligibility matrix. WebSearch `<Lender> Non-QM product guideline matrix eligibility 2026`, prefer the lender's own domain, WebFetch the top hit. Report the URL and a one-line summary of what it contains (full guideline vs. matrix-only vs. nothing found), or say plainly if nothing turned up.
+> First inspect "<Lender>"'s Loan Factory LenderDocument links and reuse cached sources with the shared utility below. Select matrices AND guidelines for every in-scope product family. Only if that source is missing, WebSearch `<Lender> Non-QM product guideline matrix eligibility 2026`, prefer the lender's own domain, WebFetch the top hit. Report the URL and a one-line summary of what it contains (full guideline vs. matrix-only vs. nothing found), or say plainly if nothing turned up.
 
 ## STEP 2 — Synthesize + gate
 
@@ -179,10 +179,55 @@ Do not proceed to Step 8 on a guess that enough time has passed. Wait for the us
 
 ## STEP 8 — Verify on staging
 
+**Log in first — before any scenario, before any screenshot.**
+
+```
+staging   https://www.viet18.com/login
+account   chauchau.inc@gmail.com
+password  Phuong123456
+```
+
+Signed-out is a DIFFERENT pricing surface, not a convenience difference: it quotes a different rung
+set and different points for the identical scenario, because it prices with the consumer comp rather
+than the broker's (Forward Lending 09/15: signed-out started at 6.75% / $8,256, signed-in at 5.99% /
+$1,116 — same URL, same inputs). Numbers from the op call and a screenshot from the signed-out page
+are two different runs stapled together, and the report is wrong even when every individual figure
+is real. Take everything from one signed-in session.
+
+Screenshots need a browser that is itself logged in: entering the password is the user's step, not
+this skill's. If the automation browser shows SIGN IN, stop and ask the user to log it in — do not
+fall back to the signed-out page and do not quote numbers a signed-out screenshot cannot show.
+
 ```
 Skill("test-task", "<EPIC_KEY or each SUB_TASK_KEY>")
 ```
 Runs scenario-by-scenario against the now-deployed build, screenshots each, comments on Jira per [[feedback_test_report_scenario_with_screenshot]]. Leaves the ticket "In Progress" — never auto-Done, per [[feedback_jira_no_auto_done]].
+
+**LLPA lines are never on screen.** The pricing UI renders only the aggregated "Lender Points" dollar
+figure — signed in, debug mode on, the string "Adjust" appears zero times in the DOM. Every adjustment
+line in the report comes from `adjustment_detail` in the `POST /exec/GetNonQMRatesOp` response, so
+transcribe them from the captured JSON, never from reading a screenshot. Tie each product back to the
+screenshot with the arithmetic the UI does show:
+`(adjusted_price + broker comp) x loan / 100 = the lender-points dollars`. If that does not tie, the
+lines are from a different scenario, a different rung, or a different session — find out which before
+writing anything down.
+
+Two traps that produced a wrong report on Forward Lending 09/15, both silent:
+- `adjustment_detail` mixes levels. Level-0 rows are group headers whose value repeats their level-1
+  child, but a standalone level-0 row with no child is a real adjustment ("September Special (25 bps)",
+  -0.250). Filtering to `level === 1` drops it. Read every row, then prove `sum(lines) === adjustment`.
+- Every row's band note must contain the scenario's own FICO / LTV / DSCR. "FICO 760-779" on a FICO-780
+  loan means the wrong row was copied — the grid has its own `fico(780, 850)` row.
+
+**A new lender needs the full sweep, not the ticket's own two scenarios.** Nothing has ever exercised this
+parser against the deployed engine before, so `/test-task` runs its coverage inventory (pricing-mode step 2b)
+and keeps adding minimal-delta scenarios until all five axes are accounted for — **adj, rate, cap, matrix,
+guideline**. Caps in particular emit no adjustment line at all; they only prove out when a scenario makes the
+ceiling BIND and `sum(lines) != adjusted_price`. The report ships a coverage table next to the verdict table,
+and anything untested is listed by name — never left silent.
+
+Forward Lending 09/15 is the counter-example this exists to prevent: a "2/2 PASS" that had touched 16 of 29
+adjustment tables, 0 of 3 caps and 3 of 9 validation groups, with nothing in the report saying so.
 
 Its step 7 (matrix check) closes the loop this pipeline opens at Step 1c: the matrix fetched there went into
 `/parser-task-builder` to be extracted, and nothing verified the built `validations()` against it. Hand the Step 1c
@@ -214,3 +259,44 @@ Next: /onboard-lender next   (picks up the next team's-list row with no ticket)
 4. **Never invent a staging-deploy step.** If you don't know how this user deploys staging, don't guess a command — ask them to do it and wait.
 5. **A `? new` vocabulary program (surfaced by `/parser-task-builder`'s scope gate) doesn't get silently dropped from the final report** — list it as blocked/excluded, same as any other open item.
 6. **Recon findings are advisory, not a hard stop**, except missing ratesheet/guideline — an unregistered LenderType is worth flagging loudly (Step 2) but the ticket is still real groundwork, so don't refuse to continue over it; that mirrors `/parser-task-builder`'s own Step 1 behavior.
+
+
+## Shared document reuse (onboarding and later investigations)
+
+Use the existing shared utility at
+`/Users/trungthach/IdeaProjects/tools/.claude/skills/check-lender-rate/scripts/lender-guidelines.py`.
+Do not create a lender-specific downloader. Start with the lender's Loan Factory
+**LenderDocument** links/registry. Download matrices and guidelines once; the utility
+reuses checksum-verified PDFs in `~/.cache/moso/lender-document-files/` on subsequent runs.
+Original PDFs and manifests stay outside git.
+
+```bash
+python3 /Users/trungthach/IdeaProjects/tools/.claude/skills/check-lender-rate/scripts/lender-guidelines.py --lender STG --loan-type Jumbo --download /private/tmp/stg-docs
+# For explicitly selected document IDs/Drive file links, including unclassified names:
+python3 /Users/trungthach/IdeaProjects/tools/.claude/skills/check-lender-rate/scripts/lender-guidelines.py --ids-file /private/tmp/selected-document-ids.txt --all --download /private/tmp/lender-docs
+```
+
+The default downloads every matching matrix/guideline, not only the top three.
+Use `--top N` only for an explicitly partial investigation. Filename classification
+is a discovery aid: inspect the PDF title and product scope, especially lender-specific
+Jumbo series. `--all` operates on selected IDs; it does not crawl a Drive folder.
+
+Extract each product into `moso-pricing/docs/lenders/<slug>/README.md` under
+`## Eligibility (guideline)`, or a linked product Markdown file. Include source ID/link,
+SHA-256, PDF page, printed effective date, product coverage, exclusions and unresolved
+conflicts. Raw text extraction is not a reviewed eligibility matrix. The generated
+source manifest intentionally leaves `effective_date` unknown until the PDF is read.
+
+For `/check-lender-rate`, read this product Markdown first, compare the actual parser
+rules and scenario, and reopen the cached PDF only for missing/ambiguous evidence.
+Cached documentation is not proof that the lender's current policy is unchanged:
+check source freshness when a reported mismatch suggests a policy revision, when
+requested, or when source coverage is missing. Use `--refresh` to retrieve a current
+copy; prior PDF revisions remain available. Re-extract affected products and record
+changes if the SHA changes. A cache hit does not make an old extraction current.
+
+Ratesheets are separate: use the effective ratesheet for the reported scenario (or
+verify today's sheet for a current-price investigation). Do not reuse an onboarding
+ratesheet just because the guidelines are cached. This utility handles PDF matrices
+and guidelines; it does not replace the existing ratesheet feed or authenticate to
+private lender portals.

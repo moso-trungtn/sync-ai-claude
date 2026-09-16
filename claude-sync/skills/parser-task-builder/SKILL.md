@@ -820,3 +820,44 @@ Unknown folder → ask the user to point at the right one. Missing folder for a 
 **Media (post-upload, Pass 2):** `{"type":"mediaSingle","attrs":{"layout":"center"},"content":[{"type":"media","attrs":{"type":"file","id":"<attachment_id>","collection":""}}]}`
 **5-col spec table row:** `{"type":"tableRow","content":[{"type":"tableCell","attrs":{},"content":[{"type":"paragraph","content":[{"type":"text","text":"1"}]}]}, ...]}` (header row uses `tableHeader` instead of `tableCell`)
 **Full table skeleton:** `{"type":"table","attrs":{"isNumberColumnEnabled":false,"layout":"default"},"content":[{"type":"tableRow","content":[<tableHeader cells>]},{"type":"tableRow","content":[<tableCell cells>]}]}`
+
+
+## Shared document reuse (onboarding and later investigations)
+
+Use the existing shared utility at
+`/Users/trungthach/IdeaProjects/tools/.claude/skills/check-lender-rate/scripts/lender-guidelines.py`.
+Do not create a lender-specific downloader. Start with the lender's Loan Factory
+**LenderDocument** links/registry. Download matrices and guidelines once; the utility
+reuses checksum-verified PDFs in `~/.cache/moso/lender-document-files/` on subsequent runs.
+Original PDFs and manifests stay outside git.
+
+```bash
+python3 /Users/trungthach/IdeaProjects/tools/.claude/skills/check-lender-rate/scripts/lender-guidelines.py --lender STG --loan-type Jumbo --download /private/tmp/stg-docs
+# For explicitly selected document IDs/Drive file links, including unclassified names:
+python3 /Users/trungthach/IdeaProjects/tools/.claude/skills/check-lender-rate/scripts/lender-guidelines.py --ids-file /private/tmp/selected-document-ids.txt --all --download /private/tmp/lender-docs
+```
+
+The default downloads every matching matrix/guideline, not only the top three.
+Use `--top N` only for an explicitly partial investigation. Filename classification
+is a discovery aid: inspect the PDF title and product scope, especially lender-specific
+Jumbo series. `--all` operates on selected IDs; it does not crawl a Drive folder.
+
+Extract each product into `moso-pricing/docs/lenders/<slug>/README.md` under
+`## Eligibility (guideline)`, or a linked product Markdown file. Include source ID/link,
+SHA-256, PDF page, printed effective date, product coverage, exclusions and unresolved
+conflicts. Raw text extraction is not a reviewed eligibility matrix. The generated
+source manifest intentionally leaves `effective_date` unknown until the PDF is read.
+
+For `/check-lender-rate`, read this product Markdown first, compare the actual parser
+rules and scenario, and reopen the cached PDF only for missing/ambiguous evidence.
+Cached documentation is not proof that the lender's current policy is unchanged:
+check source freshness when a reported mismatch suggests a policy revision, when
+requested, or when source coverage is missing. Use `--refresh` to retrieve a current
+copy; prior PDF revisions remain available. Re-extract affected products and record
+changes if the SHA changes. A cache hit does not make an old extraction current.
+
+Ratesheets are separate: use the effective ratesheet for the reported scenario (or
+verify today's sheet for a current-price investigation). Do not reuse an onboarding
+ratesheet just because the guidelines are cached. This utility handles PDF matrices
+and guidelines; it does not replace the existing ratesheet feed or authenticate to
+private lender portals.
