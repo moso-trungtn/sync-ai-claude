@@ -40,6 +40,8 @@ guidelines, so the file is a cache, not a source. The ids file may hold bare ids
 full drive.google.com links, one per line.
 """
 
+from lender_document_cache import DocumentCache, DEFAULT_CACHE
+
 import argparse
 import json
 import re
@@ -131,12 +133,12 @@ def read_ids(args) -> list:
         raw += row["file_ids"]
     out = []
     for item in raw:
-        m = re.search(r"[?&/]id=([A-Za-z0-9_-]+)", item) or re.fullmatch(r"[A-Za-z0-9_-]{20,}", item)
+        m = re.search(r"/file/d/([A-Za-z0-9_-]+)", item) or re.search(r"[?&/]id=([A-Za-z0-9_-]+)", item) or re.fullmatch(r"[A-Za-z0-9_-]{20,}", item)
         if m:
             out.append(m.group(1) if m.lastindex else m.group(0))
     if not out:
         sys.exit("no ids given (use --lender, --ids or --ids-file)")
-    return out
+    return list(dict.fromkeys(out))
 
 
 def head(fid: str) -> tuple:
@@ -156,6 +158,11 @@ def classify(filename: str) -> dict:
             "loan_types": [], "structured": False}
     m = NAME_RE.match(filename)
     if not m:
+        # Unstructured names remain candidates, never proof of product coverage.
+        for pattern, mapped in SCOPE_MAP:
+            if re.search(pattern, filename, re.IGNORECASE):
+                info['loan_types'] = mapped
+                break
         return info
     info["structured"] = True
     info["scope"] = m.group("scope")
@@ -219,8 +226,14 @@ def main():
     ap.add_argument("--ids-file", help="file with one id/link per line")
     ap.add_argument("--loan-type", help="LoanType name, e.g. Conventional, FHA, VA, Non_QM, Jumbo")
     ap.add_argument("--download", metavar="DIR", help="download the ranked candidates into DIR")
-    ap.add_argument("--top", type=int, default=3, help="how many candidates to download (default 3)")
+    ap.add_argument("--top", type=int, default=None, help="optional candidate limit; default downloads all matching documents")
+    ap.add_argument("--cache-dir", default=str(DEFAULT_CACHE), help="persistent PDF cache outside git")
+    ap.add_argument("--refresh", action="store_true", help="check remote sources again; preserve old PDF revisions")
+    ap.add_argument("--all", action="store_true", help="download all explicitly selected IDs, without loan-type ranking")
     args = ap.parse_args()
+    if args.top is not None and args.top < 1:
+        ap.error("--top must be positive")
+    cache = DocumentCache(args.cache_dir)
 
     if args.find_lender:
         rows = match_lender(load_registry(Path(args.registry)), args.find_lender)
@@ -239,7 +252,13 @@ def main():
 
     docs, skipped = [], []
     for fid in ids:
-        name, size = head(fid)
+        cached_meta = cache.metadata(fid) if not args.refresh else None
+        if cached_meta and cache.cached(fid):
+            name, size = cached_meta['name'], cached_meta['bytes']
+        else:
+            name, size = head(fid)
+        if not name and args.all:
+            name = fid + '.pdf'
         if not name:
             skipped.append((fid, size))
             continue
@@ -286,12 +305,20 @@ def main():
         for name, sizes in clashes.items():
             print(f"  {name}  sizes={sorted(sizes)}")
 
+    if args.all:
+        if not args.download:
+            ap.error("--all requires --download DIR")
+        download_documents(docs, args, cache)
+        if skipped:
+            sys.exit(1)
+        return
+
     if not args.loan_type:
         print("\nPass --loan-type to rank the documents that govern one product family.")
         return
 
     lt = args.loan_type
-    matches = [d for d in structured if covers(d, lt)]
+    matches = [d for d in docs if covers(d, lt)]
     if not matches:
         print(f"\nNO DOCUMENT CLAIMS LOAN TYPE {lt!r}.")
         print("  Either the lender does not offer it, or its guideline is filed under a")
@@ -311,8 +338,8 @@ def main():
     def rank(d):
         wildcard = WILDCARD in d["loan_types"]
         breadth = len(d["loan_types"])
-        has_guidelines = "guidelines" in d["doctype"].lower()
-        return (wildcard, -int(d["_sort_date"]), breadth, not has_guidelines)
+        has_guidelines = "guidelines" in (d["doctype"] or "").lower()
+        return (wildcard, -int(d.get("_sort_date", "0")), breadth, not has_guidelines)
 
     matches.sort(key=rank)
     print(f"\nDOCUMENTS GOVERNING {lt} (newest first; ALL-wildcard documents last)")
@@ -325,18 +352,37 @@ def main():
     print("  revision date. Confirm against the PDF before recording anything.")
 
     if args.download:
-        out = Path(args.download)
-        out.mkdir(parents=True, exist_ok=True)
-        for d in matches[:args.top]:
-            dest = out / d["name"]
-            subprocess.run(["curl", "-sL", "-m", "180", "-o", str(dest),
-                            f"https://drive.google.com/uc?export=download&id={d['id']}"], check=False)
-            title = subprocess.run(["pdfinfo", str(dest)], capture_output=True, text=True,
-                                   check=False).stdout
-            t = re.search(r"(?im)^Title:\s*(.+)$", title)
-            p = re.search(r"(?im)^Pages:\s*(\d+)$", title)
-            print(f"\n  saved {dest}")
-            print(f"    pages={p.group(1) if p else '?'}  pdf title={t.group(1).strip() if t else '<none>'}")
+        download_documents(matches, args, cache)
+        if skipped:
+            sys.exit(1)
+
+
+def download_documents(docs, args, cache):
+    out = Path(args.download)
+    out.mkdir(parents=True, exist_ok=True)
+    manifest = []
+    failed = False
+    for d in docs[:args.top]:
+        try:
+            path = cache.fetch(d['id'], d['name'], refresh=args.refresh)
+            meta = cache.metadata(d['id'])
+            # ID and hash prevent collisions between same-name files and revisions.
+            dest = out / (d['id'] + '-' + meta['sha256'] + '.pdf')
+            if not dest.exists():
+                cache.atomic(dest, path.read_bytes())
+            manifest.append(dict(meta, local_path=str(dest.resolve()), cache_path=str(path.resolve())))
+            print(f"  available {dest}")
+        except (OSError, ValueError, subprocess.CalledProcessError) as error:
+            failed = True
+            print(f"  FAILED {d['id']}: {error}", file=sys.stderr)
+    # Each run gets its own manifest; a partial run cannot overwrite prior evidence.
+    from datetime import datetime, timezone
+    stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')
+    target = out / ('sources-' + stamp + '.json')
+    cache.atomic(target, (json.dumps(manifest, indent=2) + '\n').encode())
+    print(f"Source manifest: {target}")
+    if failed:
+        sys.exit(1)
 
 
 if __name__ == "__main__":

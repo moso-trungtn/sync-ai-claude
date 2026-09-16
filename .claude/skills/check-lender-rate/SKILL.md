@@ -134,7 +134,7 @@ reason is visible, with many the row is just absent.
 rest, and moso does not model it. To answer "does moso enforce this rule":
 
 1. Read the lender's `## Eligibility (guideline)` section in `moso-pricing/docs/lenders/<slug>/README.md`.
-   If it already covers the loan type in question, stop here; the section is the answer.
+   If it covers the loan type, use it as the source summary; compare its rules with the actual validations and verify freshness when the scenario suggests a policy change.
 2. Otherwise fetch the guideline. Every lender's documents sit in a world-readable Drive
    folder, indexed by a local registry built from PROD's `Lender.document_links`:
    ```bash
@@ -199,3 +199,44 @@ Two real gaps surfaced that the scenario itself did not hit: the sheet's
 "30/25yr Conv Fx (Non-HB) Investment >=$400k +0.25" incentive row is absent from
 `currentIncentivesAdj`, and Mortgage Connect has no premium cap despite the sheet's
 "lesser of 102.75 or $20,000" note.
+
+
+## Shared document reuse (onboarding and later investigations)
+
+Use the existing shared utility at
+`/Users/trungthach/IdeaProjects/tools/.claude/skills/check-lender-rate/scripts/lender-guidelines.py`.
+Do not create a lender-specific downloader. Start with the lender's Loan Factory
+**LenderDocument** links/registry. Download matrices and guidelines once; the utility
+reuses checksum-verified PDFs in `~/.cache/moso/lender-document-files/` on subsequent runs.
+Original PDFs and manifests stay outside git.
+
+```bash
+python3 /Users/trungthach/IdeaProjects/tools/.claude/skills/check-lender-rate/scripts/lender-guidelines.py --lender STG --loan-type Jumbo --download /private/tmp/stg-docs
+# For explicitly selected document IDs/Drive file links, including unclassified names:
+python3 /Users/trungthach/IdeaProjects/tools/.claude/skills/check-lender-rate/scripts/lender-guidelines.py --ids-file /private/tmp/selected-document-ids.txt --all --download /private/tmp/lender-docs
+```
+
+The default downloads every matching matrix/guideline, not only the top three.
+Use `--top N` only for an explicitly partial investigation. Filename classification
+is a discovery aid: inspect the PDF title and product scope, especially lender-specific
+Jumbo series. `--all` operates on selected IDs; it does not crawl a Drive folder.
+
+Extract each product into `moso-pricing/docs/lenders/<slug>/README.md` under
+`## Eligibility (guideline)`, or a linked product Markdown file. Include source ID/link,
+SHA-256, PDF page, printed effective date, product coverage, exclusions and unresolved
+conflicts. Raw text extraction is not a reviewed eligibility matrix. The generated
+source manifest intentionally leaves `effective_date` unknown until the PDF is read.
+
+For `/check-lender-rate`, read this product Markdown first, compare the actual parser
+rules and scenario, and reopen the cached PDF only for missing/ambiguous evidence.
+Cached documentation is not proof that the lender's current policy is unchanged:
+check source freshness when a reported mismatch suggests a policy revision, when
+requested, or when source coverage is missing. Use `--refresh` to retrieve a current
+copy; prior PDF revisions remain available. Re-extract affected products and record
+changes if the SHA changes. A cache hit does not make an old extraction current.
+
+Ratesheets are separate: use the effective ratesheet for the reported scenario (or
+verify today's sheet for a current-price investigation). Do not reuse an onboarding
+ratesheet just because the guidelines are cached. This utility handles PDF matrices
+and guidelines; it does not replace the existing ratesheet feed or authenticate to
+private lender portals.
