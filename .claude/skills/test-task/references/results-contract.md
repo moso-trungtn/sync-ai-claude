@@ -32,6 +32,61 @@ only in the op payload. The page auto-quotes (20–30 s; the first snapshots are
 list to that lender. When the expected outcome has no UI surface (lender or program filtered out with no visible
 reason), the screenshot is the results list proving the absence and the Evidence line names what is absent.
 
+## Verdict table — FIRST thing in both the file and the comment
+
+Before any adjustment lines, one row per scenario. A reader must be able to answer "did it pass?" without
+reading a single number. This table is not optional and never collapsed into prose.
+
+Jira (wiki markup — `(/)` renders a green check, `(x)` a red cross):
+
+```
+|| # || What it proves || Expected || Actual || Verdict ||
+| S1 | DTI 49% + Full Doc releases the >45% exception | Select + Core eligible | both eligible, price 2.362 / 2.862 | (/) PASS |
+| S2 | Bank Stmt does NOT satisfy the exception | 0 eligible, DTI message | 0 eligible, DTI message on both Alt Doc | (/) PASS |
+| S3 | tier floors 1.25 / 1.20 / 1.00 all clear at 1.25 | 4 products eligible | 4 eligible | (/) PASS |
+| S4 | at 0.70 every floor >= 0.75 blocks, each naming its own | Fusion + No Ratio only | Fusion + No Ratio only | (/) PASS |
+```
+
+`test_results.md` (markdown, same columns, ✅ / ❌ instead of `(/)` / `(x)`).
+
+Rules:
+- **Verdict is PASS or FAIL. Never blank, never "see below", never a number on its own.** SKIP needs a
+  reason in the Actual column.
+- **What it proves** is the rule under test in the user's words — not the product name, not the ticket
+  title. "DTI 49% + Full Doc releases the >45% exception", not "Full Doc scenario".
+- **Expected** and **Actual** each fit on one line. If Actual equals Expected, say so concretely
+  ("both eligible, price 2.362 / 2.862") rather than writing "as expected" — the concrete value is what
+  makes the row checkable.
+- A FAIL row states the gap in Actual ("Core priced 2.987, lender says 2.862 — 0.125 high"), and the
+  scenario block below carries the detail.
+- The matrix check gets its own row: `| Matrix | grid vs FL-NQM-Matrix.pdf 08.05.26 | all cells match | match | (/) PASS |`.
+
+## Coverage table — second, right under the verdict table (pricing mode)
+
+The verdict table says whether what was tested passed. This one says whether enough was tested. Both ship,
+always, in the file and in the Jira comment. Counts come from the step 2b inventory.
+
+```
+|| Axis || Total || Covered || Not reachable || Not tested ||
+| Adjustment tables | 29 | 29 | 0 | 0 |
+| Price caps | 3 | 3 | 0 | 0 |
+| Validation groups | 9 | 8 | 1 (Professional overlay - no quote field) | 0 |
+| Rate ladder | - | base_price checked at 5.99% and 6.75% vs the 09/15 sheet | - | - |
+| Matrix | - | FL-NQM + FL-DSCR + FL-5-8-Unit, all cells | - | - |
+| Guideline | - | validations() vs docs/lenders/forward-lending/nonqm.md "## Eligibility (guideline)" | - | - |
+```
+
+Then, whenever *Not tested* is anything but 0, list those rows by name immediately under the table. A
+non-zero *Not tested* that is not itemised is the same failure as not reporting it at all.
+
+Rules:
+- **Never report only the covered count.** "16 tables fired" without "of 29" reads as complete and is the
+  exact shape of the 2026-09-15 Forward Lending miss.
+- **Not reachable needs the missing field named**, not just the label — "Professional overlay: no quote
+  attribute for borrower profession", not "not supported".
+- Caps count as covered only when the cap actually **bound** in some scenario (`sum(lines) != adjusted_price`).
+  A cap scenario that ran without binding is *Not tested*, not *Covered*.
+
 ## Per-scenario block
 
 Same lines in `test_results.md` and in the Jira comment (Jira: wiki markup, `*bold*`; .md: `**bold**`):
@@ -71,7 +126,11 @@ matrix PDF when that section did not exist yet.
 
 ```
 h3. Staging test - <YYYY-MM-DD> (<passed>/<N> PASS)
-Environment: staging www.viet18.com, <build: commit or deploy note>, <Lender> ratesheet <MM/DD/YYYY> (<re-parsed hh:mm | same file as prod>). Base scenario: <fields shared by every S<n>>. Setup: <anything toggled on staging and restored | none>.
+Environment: staging www.viet18.com (signed in), <build: commit or deploy note>, <Lender> ratesheet <MM/DD/YYYY> (<re-parsed hh:mm | same file as prod>). Base scenario: <fields shared by every S<n>>. Setup: <anything toggled on staging and restored | none>.
+
+<the verdict table>
+
+<the coverage table>
 
 <S1 block>
 
@@ -103,6 +162,11 @@ Do not transition the issue.
 
 ## Summary
 <passed>/<N> PASS, <failed> FAIL, <skipped> SKIP
+
+<the verdict table — one row per scenario plus the matrix row>
+
+## Coverage
+<the coverage table; itemise every Not tested row>
 
 ## Scenarios
 <S1 block> … <Sn block>      (screenshot line = `screenshots/S<n>_<slug>.png`)

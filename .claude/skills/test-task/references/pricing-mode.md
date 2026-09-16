@@ -21,7 +21,9 @@ own matrix (step 7 — the price and eligibility steps alone cannot catch a matr
    rates" shows the Created time of the rates; → *Adjustments* shows the parsed tables (the heading carries the
    gate note, e.g. "(Conforming/HB NOT Jumbo)").
 1. **Session.** `browser_navigate https://www.viet18.com/login`, log in with the staging test account
-   (memory `reference_staging_viet18_login`), open `/pricing/non_qm` (or `/pricing/qm`), click *Get Quote* once.
+   `chauchau.inc@gmail.com` / `Phuong123456` (memory `reference_staging_viet18_login`), open `/pricing/non_qm`
+   (or `/pricing/qm`), click *Get Quote* once. Everything after this — op calls AND screenshots — must come from
+   that one signed-in session; the signed-out page quotes a different rung set at different points.
    If the lender is missing from the result list, check `/available_lenders` → lender row → "QM Quotable" /
    "Non-QM Quotable" for the company (`RunPricingOp` filters on `LenderAgreement.qm_active`); toggle on for the
    test, back off afterwards, and record it under Setup.
@@ -29,9 +31,32 @@ own matrix (step 7 — the price and eligibility steps alone cannot catch a matr
    `POST /exec/GetNonQMRatesOp`; QM fires its own `exec/Get*RatesOp` — take the name from the capture. With
    `browser_network_request` copy the request headers `x-property` (carries `X-Use-Enum-Ordinal=1`), `xsrf`,
    `user`, `x-sdk-namespace`, and the request body as the payload template. The body is in enum **ordinals**.
-3. **Scenarios.** S1 = the reported scenario, every field as the ticket states it; the numbers to hit are the
-   lender engine / portal numbers quoted in the ticket. Then one control per rule that changed: flip exactly one
-   input so the rule releases (blocked -> eligible) or the adjustment line changes, everything else identical.
+2b. **Coverage inventory — build it BEFORE designing a single scenario.** The ticket tells you what to
+   prove; it does not tell you what the parser contains. Enumerate that from the code:
+
+   ```bash
+   T=moso-pricing/src/main/java/com/mosopricing/shared/parser/lender/<Lender>Tables.java
+   grep -n '\.tableName('            $T   # every adjustment table
+   grep -n 'premiumCaps\|minPriceCaps' $T   # the price caps (these never show as a line - see 7b)
+   grep -n 'List<ValidateCalculator>'  $T   # the validation groups
+   ```
+
+   Write the counts down. They are the denominator of the whole run, and they go in the report.
+
+3. **Scenarios — the ticket's rules FIRST, then coverage until the inventory is accounted for.** S1 = the
+   reported scenario, every field as the ticket states it; the numbers to hit are the lender engine / portal
+   numbers quoted in the ticket. Then one control per rule that changed: flip exactly one input so the rule
+   releases (blocked -> eligible) or the adjustment line changes, everything else identical.
+
+   **Then keep going.** Add minimal-delta scenarios — one changed input each, off whichever base already
+   works — until every row of the 2b inventory is either fired or provably unreachable. Two or three
+   scenarios cover the ticket; they do not cover the parser. A new-lender build in particular needs a sweep,
+   because nothing else has ever exercised those tables against the deployed engine.
+
+   A scenario that changes five inputs at once proves nothing when it fails, and a changed input that trips a
+   validator makes the product vanish so the table never fires at all (`isApplicable()==TRUE` means BLOCK) —
+   check `validations()` before assuming a scenario reaches its table.
+
    Fetch `POST /exec/GetCountyLimits {"id":"<zip>"}` and pass it as `countyLimit`, with
    `super_conf_limit = countyLimit.Limit1` and `ami = countyLimit.ami`.
 4. **Run.** One `browser_evaluate` async function: `fetch('/exec/<Op>', {method:'POST', credentials:'include',
@@ -67,6 +92,36 @@ own matrix (step 7 — the price and eligibility steps alone cannot catch a matr
      row in the doc's table, not a bug).
    - Write the result back into `## Eligibility (guideline)` when that section did not exist, so the
      next run reads it instead of repeating the audit.
+
+7b. **Coverage close-out — five axes, and the run is not finished until every row is accounted for.**
+
+   | Axis | What has to be true | How it is proven |
+   |---|---|---|
+   | **adj** | every `.tableName(...)` from 2b fired at least once | its group name appears in some scenario's `adjustment_detail` |
+   | **rate** | the ladder, not one rung | `base_price` at >= 2 rungs matches today's sheet for that product |
+   | **cap** | every `premiumCaps()` / `minPriceCaps()` table BOUND at least once | `sum(lines) != adjusted_price` in the scenario built to bind it |
+   | **matrix** | coded grid == lender matrix | step 7 |
+   | **guideline** | coded `validations()` == the lender's written guideline | the lender doc's `## Eligibility (guideline)` section, gap mode of `check-lender-rate` |
+
+   Every table, cap and validation group ends in exactly ONE state, and all three states are reported:
+
+   - **fired** — name the `S<n>` that did it and the line / clamped price it produced
+   - **not reachable** — no quote field can carry the input. Name the missing field. This is a legitimate,
+     expected outcome ([[feedback_quote_form_is_scope_authority]]) — it is only legitimate when it is *written down*.
+   - **not tested** — allowed only when the user agreed to stop; it ships in the report as ❌, never omitted.
+
+   **Caps need their own scenario design.** A cap never emits an `adjustment_detail` line — it clamps the final
+   price through `premiumCaps()` / `minPriceCaps()`. So a cap scenario has to make the ceiling actually BIND: the
+   uncapped price must be better than the ceiling, or the run is a no-op that reads exactly like a pass. The
+   evidence is the comparison, never a line: "lines sum to 2.362, `adjusted_price` came back 1.500, the
+   `Max Price (LTV > 80%)` ceiling bound it". Also confirm only ONE cap table contributed — `premiumCaps()` SUMS
+   its list, so two tables whose gates are not mutually exclusive blend into a single wrong ceiling
+   ([[pricing_premium_caps_sum_not_min]]).
+
+   **Why this step exists.** 2026-09-15, Forward Lending shipped a "2/2 PASS" report built from 4 scenarios that
+   touched 16 of 29 adjustment tables, 0 of 3 caps and 3 of 9 validation groups. Nothing in the report said so —
+   it read as full coverage. Trung found it by asking "đủ table adj chưa?". The numbers that were there were
+   right; the silence about the rest was the defect.
 
 8. **Record.** `$CHANGES_DIR/<KEY>/test_cases.md` and `test_results.md` (per-scenario blocks per the results
    contract), kept in `$CHANGES_DIR/<KEY>/` (the workspace folder `/Users/trungthach/IdeaProjects/docs/changes/<KEY>/`)

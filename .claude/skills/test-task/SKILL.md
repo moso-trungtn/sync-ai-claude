@@ -168,7 +168,10 @@ Wait for approval before proceeding.
 ### Step 1: Login
 
 If the target is staging (`www.viet18.com`), log in yourself: `browser_navigate` to `https://www.viet18.com/login`
-and use the staging test account from memory `reference_staging_viet18_login`. Only for another environment ask:
+and use the staging test account `chauchau.inc@gmail.com` / `Phuong123456` (also in memory
+`reference_staging_viet18_login`). Signed-out is a different pricing surface — different rungs, different points for
+the same scenario — so never test or screenshot from it. If the browser shows SIGN IN and you cannot enter the
+password yourself, stop and ask the user to log that browser in. Only for another environment ask:
 > "Please login to MOSO in the browser, then tell me when ready."
 
 and wait for confirmation.
@@ -327,5 +330,8 @@ the results comment → verify the render shows one image per scenario). Then te
 - **One action at a time** — Don't chain multiple actions without verifying each
 - **User is in control** — Always ask for verdict, never auto-pass
 - **Fail gracefully** — If something doesn't work, ask user, don't crash
-- **Stay focused** — Only test what the Jira ticket describes
+- **Stay focused, but not blind** — UI mode: only test what the Jira ticket describes. Pricing mode: the
+  ticket's rules first, then keep going until the coverage inventory (pricing-mode.md step 2b) is accounted
+  for — every adjustment table, every cap, every validation group fired, or named as unreachable, or listed
+  as untested. Never silently stop at the ticket's own two scenarios on a new-lender build.
 - **Evidence travels with its scenario** — every S<n> ends with its numbers and its own screenshot, in the file and in the Jira comment
