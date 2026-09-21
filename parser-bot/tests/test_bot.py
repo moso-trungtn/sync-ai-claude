@@ -141,6 +141,21 @@ def test_poll_once_triages_new_failures_once_and_posts_threads(tmp_path):
     assert bot.triager.prepared == 1
 
 
+def test_poll_once_triages_silently_when_triage_posting_is_off(tmp_path):
+    """post_triage=False: the builder's own alert is the only Chat message, but triage still records state."""
+    f1 = RateFailure("k1", "c", "AAALendings", "Error while parsing rates for AAALendings")
+    bot, cfg, chat, *_ = build(tmp_path, [f1], {"AAALendings": layout("AAALendings")})
+    bot.cfg.post_triage = False
+
+    out = bot.poll_once()
+
+    assert [r.lender for r in out] == ["AAALendings"]
+    assert chat.posts == []
+    st = NightState.load(cfg.state_dir, "2026-09-03")
+    assert st.lenders["AAALendings|QM"].status == TRIAGED
+    assert st.lenders["AAALendings|QM"].cause and st.lenders["AAALendings|QM"].thread_name == ""
+
+
 def test_fix_command_creates_ticket_runs_fixer_and_reports(tmp_path):
     f1 = RateFailure("k1", "c", "AAALendings", "Error while parsing rates for AAALendings")
     bot, cfg, chat, jira, fixer = build(tmp_path, [f1], {"AAALendings": layout("AAALendings")})

@@ -88,9 +88,13 @@ class Bot:
                 if self._update(lambda st, k=k: k in st.lenders):
                     continue  # one thread per lender+channel per night; later zone builds are noise
                 res = self.triager.triage(f)   # no state held — this is the slow part
-                label = self.lenders.label(f.lender)
-                text = messages.triage_text(res, label, ict_clock(f.created_at() or now), self._sheet_uri(res))
-                thread = self._post(text, thread_key=f"{f.lender}-{night_id(now)[5:]}")
+                thread = ""
+                # The builder's own Chat alert already names the lender and the cause, so a second message per
+                # failure is noise; triage still runs and still lands in state/<night>.json either way.
+                if self.cfg.post_triage:
+                    label = self.lenders.label(f.lender)
+                    text = messages.triage_text(res, label, ict_clock(f.created_at() or now), self._sheet_uri(res))
+                    thread = self._post(text, thread_key=f"{f.lender}-{night_id(now)[5:]}")
 
                 def _set(st, k=k, f=f, channel=channel, status=(TRIAGED if res.classification.cls == "LAYOUT" else NOT_CODE),
                          res=res, thread=thread):

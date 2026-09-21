@@ -40,6 +40,7 @@ class Config:
     commands_enabled: bool = False
     allowlist: list[str] = field(default_factory=list)
     chat_webhook_url: str = ""
+    post_triage: bool = True
 
     @property
     def moso_pricing(self) -> str:
@@ -89,4 +90,5 @@ def load_config(path: str) -> Config:
         commands_enabled=bool(raw.get("commands_enabled", False)),
         allowlist=list(raw.get("allowlist", []) or []),
         chat_webhook_url=str((raw.get("chat") or {}).get("webhook_url", "") or ""),
+        post_triage=bool((raw.get("chat") or {}).get("post_triage", True)),
     )
