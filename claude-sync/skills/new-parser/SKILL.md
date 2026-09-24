@@ -202,6 +202,19 @@ Accumulated understanding of pricing patterns:
 
 ## Common Mistakes (Learned from QC)
 
+### Frequency: THE EXPENSIVE ONE — reinventing what the base already has
+
+0. **Hand-rolling per-lender helpers and addressing the sheet by row number.**
+   Measured across all 126 adjustment parsers: **124 do it right, 2 do not.**
+   `STGMortgageAdjustmentExcelParser` = 6 private helpers, **226 call lines with hardcoded
+   row/column numbers, `section()` used 0 times**. `NewRezAdjustmentExcelParser` = 21.
+   Everyone else anchors on landmark text.
+   The base already provides `section(content, from[, to])` (`BaseAdjustmentParser`),
+   `getSheet(name, fromCol, toCol, fromRow, toRow)` (`MyWorkBook`), and
+   `.revertSignal()` / `.addNA()` / `.ignoreNewLine()` on the `PageParser` builder.
+   A private `slice()` or `crawlX()` wrapper is a **review failure**, not a style preference:
+   row numbers shift silently when the lender inserts a row, and no test catches it.
+
 ### Frequency: Very Common (>30% of first attempts)
 1. **Forgetting allTables()**: Table defined but not added to allTables() → invisible to calculator
 2. **FICO rows not descending**: Copy-paste from ratesheet which is ascending → must reverse
@@ -483,6 +496,11 @@ Include for each bead:
 ## Reference Lender: <similar_lender> (from cookbook)
 
 ## Pitfall Prevention (from pricing knowledge)
+- [ ] **Reuse gate BEFORE writing code**: list what `BaseAdjustmentParser` / `MyWorkBook` / the
+      `PageParser` builder already provide, and use them. No private `slice()` / `crawlX()`.
+- [ ] **Anchor sections on landmark TEXT (`section(...)`), never on row indices.** If the base
+      cannot express what this lender needs, propose the change to the BASE and get it confirmed —
+      never fork a private copy into one lender's file.
 - [ ] Verify field_N uniqueness before assigning
 - [ ] FICO rows descending (MAX_VALUE first)
 - [ ] crawlLabels count = rowRange count - 2
@@ -543,6 +561,11 @@ Read this file FIRST to understand the pattern. Then implement the new lender
 following the same structure, with adjustments from the beads plan.
 
 ## Pitfall Prevention Checklist
+- [ ] **Reuse gate BEFORE writing code**: list what `BaseAdjustmentParser` / `MyWorkBook` / the
+      `PageParser` builder already provide, and use them. No private `slice()` / `crawlX()`.
+- [ ] **Anchor sections on landmark TEXT (`section(...)`), never on row indices.** If the base
+      cannot express what this lender needs, propose the change to the BASE and get it confirmed —
+      never fork a private copy into one lender's file.
 Before completing EACH bead, verify:
 □ field_N is unique (grep existing fields: grep -o "field_[0-9]*" <tablesPath> | sort -u)
 □ FICO rows start with Double.MAX_VALUE (descending)
