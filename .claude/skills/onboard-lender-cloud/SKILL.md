@@ -11,8 +11,9 @@ the one to use on Trung's Mac. This file exists because the local chain cannot r
 
 | Local `/onboard-lender` chain needs | Cloud thread reality | What this skill does instead |
 |---|---|---|
-| Browser pane + signed-in Google Sheet (Step 0) | no browser session | lender name comes from the user's message; read the sheet only via a Google Drive connector if one is attached |
-| `download-ratesheet.sh`, internal hosts | no internal network | use files the user uploaded to the project; try public GCS only as a bonus |
+| Browser pane + signed-in Google Sheet (Step 0) | no browser session | read the sheet through a Google Drive connector if attached (then `#N` / `next` work); else the lender name comes from the user's message |
+| `download-ratesheet.sh` | plain `curl` from the public GCS bucket — works in the cloud | **same as local**: run it |
+| `lender-guidelines.py` + `~/.cache/moso/lender-documents.json` registry | Drive files are public, but the registry is built from PROD and kept out of git | run it with `--registry` if the user uploaded the registry to the project; else WebSearch like local 1c |
 | Jira Epic/sub-tasks (`parser-task-builder`, `new-parser`) | Jira is gone (team uses MOSO Tasks) | extraction report + PR description are the spec; no ticket writes |
 | `/Users/trungthach/...` paths, `~/.claude/projects/.../memory` | repos are cloned somewhere else | resolve paths at runtime (Step E) |
 | `agent-dashboard/emit.sh` | not present | skip every `emit_*` call silently |
@@ -48,10 +49,11 @@ Read the relevant sections of both before Step 3. Wherever they conflict with th
 
 - Tab (`qm` / `nonqm` / `corr`) and lender name come from the user's message. If the tab is missing
   or ambiguous, ask — the three tabs produce structurally different work (see `/onboard-lender` Step 0).
-- If a Google Drive / Sheets connector is attached, you MAY read the tracking sheet
-  ("Lender-Integration-Status-AI-Version", id `1jMxc-keU4h-itos__Vk-0o3fsHUmn6bMp_dm5BYLO1M`) to fill
-  Type / Programs / Status. Otherwise skip it and use what the user gave.
-- `#N` / `next` selectors are NOT supported here (they need a fresh sheet read). Ask for a name.
+- If a Google Drive / Sheets connector is attached, read the tracking sheet
+  ("Lender-Integration-Status-AI-Version", id `1jMxc-keU4h-itos__Vk-0o3fsHUmn6bMp_dm5BYLO1M`) exactly
+  like `/onboard-lender` Step 0: `#N` and `next` work, and Type / Programs / Status come from the row.
+  Always re-read it; never reuse a cached row list.
+- Without the connector, `#N` / `next` cannot be resolved — ask for the lender name.
 - Echo the resolved target before continuing.
 
 ## STEP 1 — Recon (parallel, read-only)
@@ -61,11 +63,18 @@ Run these as independent subagents in one batch where the environment supports i
 - **1a Verify lender** — `cd $PACKS_LOAN && ./lender-info.sh "<Lender>"` (existing parser?), and
   `grep -in "<name fragments>" $MOSO_REPO_ROOT/packs/quote/src/main/java/com/mvu/quote/shared/typekey/LenderType.java`
   (registered? exact constant). Optionally WebFetch `https://www.loanfactory.com/our-lenders`.
-- **1b Ratesheet** — first look in the project's uploaded files / library for this lender's ratesheet.
-  Then, as a bonus only, `curl -sI https://storage.googleapis.com/lender-rate-email/<LenderType>`.
-  Do NOT run `download-ratesheet.sh` (needs internal access / credentials).
-- **1c Matrix + guideline** — uploaded files first; else WebSearch/WebFetch the lender's own
-  product guideline / matrix (prefer the lender's domain).
+- **1b Ratesheet** — same as local: `cd $PACKS_LOAN && ./download-ratesheet.sh "<Lender>" --no-detect`
+  (public GCS via curl, no credentials). If it fails, check whether mail ever routed:
+  `curl -sI https://storage.googleapis.com/lender-rate-email/<LenderType>`. If both fail, use a
+  ratesheet the user uploaded to the project; if none, report exactly what's missing.
+  A network/egress failure is reported as such — not as "lender has no ratesheet".
+- **1c Matrix + guideline** — in order:
+  1. If the project has the registry file `lender-documents.json` uploaded, run
+     `python3 $TOOLS/.claude/skills/check-lender-rate/scripts/lender-guidelines.py --registry <that file> --lender "<Lender>" --loan-type <type> --download /tmp/onboard/<slug>/docs`
+     (all matching matrices AND guidelines, every in-scope product family). Never commit the registry.
+  2. Else guideline/matrix files the user uploaded to the project.
+  3. Else WebSearch/WebFetch the lender's own product guideline / matrix (prefer the lender's domain),
+     same as local recon 1c.
 
 ## STEP 2 — Synthesize + gate
 
