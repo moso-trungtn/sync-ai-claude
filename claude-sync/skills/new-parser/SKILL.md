@@ -11,7 +11,7 @@ allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Agent, mcp__claude_ai_Atlass
 
 You are a **smart orchestrator** that builds new lender parsers. You learn from every build, understand pricing domain patterns, find similar lenders as templates, and prevent known mistakes.
 
-Pipeline flow: **Knowledge Load → BA (domain-aware) → User Confirm → Architect (template-guided beads) → Dev (surgeon + pitfall prevention) → QC → Verify → Learn → Finalize**
+Pipeline flow: **Knowledge Load → BA (domain-aware) → User Confirm → Architect (template-guided beads) → Dev (surgeon + pitfall prevention) → Review (parser-reviewer, blocks until APPROVE) → QC → Verify → Learn → Finalize**
 
 ---
 
@@ -605,6 +605,25 @@ emit_agent_complete "dev"
 
 ---
 
+## STEP 4.5 — Review Gate (parser-reviewer)
+
+**Output:** `[new-parser 4.5/8] Review — strict parser review, round <n>...`
+
+Spawn with `subagent_type: "parser-reviewer"`, description `"Review: <Lender> round <n>"`. Prompt:
+lender, task key, ratesheet + matrix + guideline paths, `docs/changes/<KEY>/specs.md`, the dev's
+report, the base commit for the diff, round number. Do NOT paste the dev's conclusions as facts.
+
+- `VERDICT: APPROVE` → Step 5 (QC).
+- `VERDICT: REJECT` → re-spawn `parser-dev` with the reviewer's findings table verbatim as the fix
+  list, then re-run this step (round n+1). The dev may not argue a finding away; it either fixes it or
+  writes the one-line justification R2.4 / MAJOR allows, and the reviewer decides.
+- Round 3 still REJECT, a `QUESTION` for Trung, or a diff that adds a shared base helper → stop the
+  pipeline and show Trung the report.
+
+QC never runs on code the reviewer has not approved.
+
+---
+
 ## STEP 5 — QC Agent: Test + Learn Failures
 
 **Output:**
@@ -655,7 +674,7 @@ emit_agent_complete "qc"  # or emit_agent_fail
    - Include past fix hint if available
    - Spawn parser-dev with fix beads
 
-4. **After fix → re-run QC**
+4. **After fix → back to Step 4.5 (review) first, then re-run QC**
 
 ---
 
