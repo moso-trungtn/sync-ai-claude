@@ -83,6 +83,32 @@ Read the modified files and verify:
 
 7. **crawlLabels count**: Number of crawlLabels matches row ranges minus 2 sentinels
 
+8. **Reuse gate — MECHANICAL, this one FAILS the bead** (parser-dev rule 6 + 9 existed for months and
+   STG still shipped 1,275 hardcoded numbers, because nothing checked it):
+
+   ```bash
+   P=<PARSER_FILE>
+   # a) hand-rolled helpers that duplicate the base
+   grep -nE 'private .*(String +slice|void +crawl[A-Za-z]*)\(' "$P"
+   # b) hardcoded row windows in crawl/parse calls
+   grep -cE '^[[:space:]]*(crawl|parse|getSheet)[A-Za-z]*\(.*,[[:space:]]*[0-9]+[[:space:]]*,[[:space:]]*[0-9]+' "$P"
+   # c) does it use the shared text-anchored API at all?
+   grep -c 'section(' "$P"
+   ```
+
+   Calibration: `STGMortgageAdjustmentExcelParser` scores a=6, b=226, c=0 (the bad case this check
+   exists for). `AFRAdjustmentExcelParser` scores a=0, b=0, c=4 (the good case).
+
+   - (a) non-empty → **FAIL**. Name each helper and the base API it duplicates
+     (`section()` in `BaseAdjustmentParser`, `getSheet(name, fromCol, toCol, fromRow, toRow)` in
+     `MyWorkBook`, `.revertSignal()/.addNA()/.ignoreNewLine()` on the `PageParser` builder).
+   - (b) > 0 while (c) == 0 → **FAIL**. The parser is addressing the sheet by row number instead of
+     by landmark text. A lender inserting one row silently shifts every table and no test notices.
+   - (b) > 0 with (c) > 0 → report the count and each call site; row numbers are acceptable only for
+     a column window inside an already text-anchored section, and the report must say which.
+
+   Exempt only what the lender doc justifies in writing. "It was easier" is not a justification.
+
 ## Output Format
 Return EXACTLY:
 

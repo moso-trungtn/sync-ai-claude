@@ -35,8 +35,10 @@ sheet's columns mean.**
      1b. Fetch ratesheet   — download-ratesheet.sh --no-detect / GCS ratesheet-watch bucket /
                              lender-rate-email GCS object / else: flag "need email or
                              request-upload"
-     1c. Fetch matrix+guideline — WebSearch/WebFetch the lender's own product guideline PDF /
-                             else: flag "need matrix screenshots from the user"
+     1c. Fetch matrix+guideline — every user-supplied doc (Drive folder, attachments) into
+                             docs/changes/<KEY>/input/ FIRST / LenderDocument registry /
+                             WebSearch the lender's own guideline PDF / else: flag "need matrix
+                             screenshots from the user"
   │
   ▼
 2. Synthesize recon (MAIN LOOP) — report findings; if anything's blocked or missing, ask
@@ -48,7 +50,9 @@ sheet's columns mean.**
   │
   ▼
 4. Skill("new-parser", <EPIC_KEY, or loop one sub-task key at a time>)
-   → BA → Dev → QC, ends at local commit
+   → BA → Dev → parser-reviewer (blocks until APPROVE) → QC, ends at local commit
+   then one final parser-reviewer pass over the whole lender diff (all sub-tasks).
+   DONE = final APPROVE from a reviewer that ran the tests itself (R7.1) — nothing less
   │
   ▼
 5. ⏸ CHECKPOINT 1 — show `git diff --stat` + test results, AskUserQuestion: "Review this —
@@ -71,7 +75,7 @@ sheet's columns mean.**
 
 ## STEP 0 — Resolve the tab, then the target lender
 
-The tracking sheet (`https://docs.google.com/spreadsheets/d/1BJ3MniiE9sBbQ6L-lZpE-WR2NVqvCGA5`) has **three separate "not integrated" tabs** — they are NOT the same list and don't share row numbers:
+The tracking sheet (`https://docs.google.com/spreadsheets/d/1jMxc-keU4h-itos__Vk-0o3fsHUmn6bMp_dm5BYLO1M`, "Lender-Integration-Status-AI-Version") has **three separate "not integrated" tabs** — they are NOT the same list and don't share row numbers:
 
 | Tab (exact name in the sheet) | Selector word | Feeds which `/parser-task-builder` workflow |
 |---|---|---|
@@ -83,7 +87,7 @@ The tracking sheet (`https://docs.google.com/spreadsheets/d/1BJ3MniiE9sBbQ6L-lZp
 
 **If the argument's first word matches `qm`/`nonqm`/`corr`** (or an unambiguous variant like "non-qm", "correspondent"), use that tab. **If it's missing or ambiguous**, ask via `AskUserQuestion` before opening the sheet — don't default silently, the three tabs produce structurally different tickets.
 
-Once the tab is known, open the sheet in the Browser pane and click the tab by its exact name (tab gids aren't hardcoded here — click by label, the way you'd click any other tab; only the Non-QM tab's gid happens to be known from earlier use: `#gid=291558153`). This needs a logged-in session — if the sign-in wall shows up, ask the user to log in in that tab themselves (never enter credentials).
+Once the tab is known, open the sheet in the Browser pane and click the tab by its exact name (click by label, the way you'd click any other tab — don't assume a gid is stable long-term, but two are known from recent use: `QM not integrated` = `#gid=1585997439`, `Non-QM not integrated` = `#gid=291558153`). This needs a logged-in session — if the sign-in wall shows up, ask the user to log in in that tab themselves (never enter credentials).
 
 **Argument's remainder is a lender name** — use it directly on the resolved tab, skip to Step 1 (recon still matters even when you already know the name — it's what finds the actual files).
 
@@ -109,13 +113,17 @@ Target: Nations Direct Mortgage  (tab: Non-QM not integrated, row 4, "#3" in tea
 Send all three in **one message, one batch** of Agent tool calls (they're independent and read-only — no reason to serialize them). Each returns a short structured finding, not a wall of text.
 
 **1a — Verify lender** (prompt sketch):
-> Check whether "<Lender>" is ready to build a parser for. Run `cd $MOSO_REPO_ROOT/packs/loan && ./lender-info.sh "<Lender>"` — report whether a parser already exists. Separately `grep -in "<Lender fragments>" $MOSO_REPO_ROOT/packs/quote/src/main/java/com/mvu/quote/shared/typekey/LenderType.java` — report whether it's a registered LenderType constant, and if so the exact constant name. Also try fetching `https://www.loanfactory.com/our-lenders` and check whether "<Lender>" appears in the card list (that page lists Loan Factory's approved lenders — see [[reference_lf_our_lenders_public_approved_list]]). Report all three findings plainly, don't guess if a check is inconclusive — say so.
+> Check whether "<Lender>" is ready to build a parser for. Run `cd $MOSO_REPO_ROOT/packs/loan && ./lender-info.sh "<Lender>"` — report whether a parser already exists. Separately `grep -in "<Lender fragments>" $MOSO_REPO_ROOT/packs/quote/src/main/java/com/mvu/quote/shared/typekey/LenderType.java` — report whether it's a registered LenderType constant, and if so the exact constant name. Also try fetching `https://www.loanfactory.com/our-lenders` and check whether "<Lender>" appears in the card list (that page lists Loan Factory's approved lenders — see [[reference_lf_our_lenders_public_approved_list]]). Report all three findings plainly, don't guess if a check is inconclusive — say so. If a `LenderType` with a matching name exists, also report what its current parser reads (format, portal/mail sender, account, layout, how often it parses) next to the new sheet's — a matching name is not the same product.
+
+**An existing LenderType is not proof it's the same lender product.** `RocketCorrespondent` is a Rocket Pro TPO PDF clone that parses daily; Rocket's real delegated-correspondent sheet (RKT-Corr-11356 xlsx) is a different lender, now `RocketDelegatedCorrespondent`. If 1a finds a match and the source differs from what that parser reads, stop at Step 2 and ask Trung "new LenderType or replace?". Never overwrite a live daily parser by default.
 
 **1b — Fetch ratesheet** (prompt sketch):
 > Get today's ratesheet for "<Lender>" if one exists. Try `cd $MOSO_REPO_ROOT/packs/loan && ./download-ratesheet.sh "<Lender>" --no-detect` first. If that fails, check `curl -I https://storage.googleapis.com/lender-rate-email/<LenderType>` (see [[ratesheet_email_gcs_object_last_routed]]) for whether mail has ever routed for this lender at all. Report the resolved local file path if you got one, or exactly what's missing (no account/credential yet vs. a download error vs. never been routed).
 
 **1c — Fetch matrix + guideline** (prompt sketch):
-> First inspect "<Lender>"'s Loan Factory LenderDocument links and reuse cached sources with the shared utility below. Select matrices AND guidelines for every in-scope product family. Only if that source is missing, WebSearch `<Lender> Non-QM product guideline matrix eligibility 2026`, prefer the lender's own domain, WebFetch the top hit. Report the URL and a one-line summary of what it contains (full guideline vs. matrix-only vs. nothing found), or say plainly if nothing turned up.
+> First download EVERY document the user supplied for "<Lender>" (Drive folder, attachments, links in the message) into `/Users/trungthach/IdeaProjects/docs/changes/<KEY>/input/` and list each file with a one-line description. Then inspect "<Lender>"'s Loan Factory LenderDocument links and reuse cached sources with the shared utility below. Select matrices AND guidelines for every in-scope product family. Only if that source is missing, WebSearch `<Lender> Non-QM product guideline matrix eligibility 2026`, prefer the lender's own domain, WebFetch the top hit. Report the URL and a one-line summary of what it contains (full guideline vs. matrix-only vs. nothing found), or say plainly if nothing turned up.
+
+A supplied doc that stays on Drive is a doc nobody reads. 10/26: the Planet overlay matrix and the Rocket gov matrices were never downloaded, so the reviewer could not verify the validators; the AmeriHome Seller Guide went unopened until the review forced it, and it held the NY exclusion, NJ 2-4 units, escrow and property-type rules. Everything in `input/` goes to `/parser-task-builder` and to every `parser-reviewer` prompt, and `test_results.md` lists which ones were read.
 
 ## STEP 2 — Synthesize + gate
 
@@ -149,13 +157,45 @@ For each in-scope sub-task (or the whole Epic if `/new-parser` accepts it direct
 Skill("new-parser", "<SUB_TASK_KEY>")
 ```
 This ends at a local commit per lender's own Scope note — don't expect it to push or touch staging.
+Each `/new-parser` run already passes its own `parser-reviewer` gate (its Step 4.5).
+
+**Final review (whole lender).** After the last sub-task, spawn `parser-reviewer` once more over the
+full diff of every commit this run made (moso-pricing + packs), with the ratesheet, matrix, guideline
+and the Epic's specs. This catches what per-sub-task reviews miss: duplicated helpers across
+sub-tasks, field_N clashes, a cap or validation that two sub-tasks both add. REJECT → send its
+findings table to `parser-dev` (via `/new-parser`'s fix loop), then review again; max 3 rounds, then
+stop and show Trung. Report: `docs/changes/<EPIC_KEY>/review-parser-final-<n>.md`. If the reviewer was
+told not to write files, save its full report text there yourself — a verdict only in a transcript is lost.
+
+**Debate, not obedience (Trung 2026-10-27).** The dev session may CONTEST a finding instead of fixing it,
+with evidence only: a sheet cell, a guideline line, or an engine `file:line`. Relay the rebuttal to the
+SAME reviewer agent (`SendMessage`, not a fresh one); it holds the finding with its own evidence or
+concedes. Fix only what survives. A disagreement neither side drops goes to Trung with both sides' evidence.
+
+**A lender is done only on that final APPROVE**, from a reviewer that ran the tests itself (R7.1). "Tests
+pass" or a dev's "done" is not done: 10/26 three sessions reported done with no review, and the later review
+found real price bugs — Citi ARM rows read "Agency Jumbo ARM" (+2.50), AmeriHome's Add'l NOOPlus LLPA hit
+ARM/HighBal, Planet missed the FTHB AMI LLPA waiver (1.875 pts).
+
+**Parallel runs on the shared checkout** (several lenders at once):
+- `df -h /` before every isolated build. A `-<TAG>-SNAPSHOT` packs worktree is ~2 GB plus `target`; four
+  parallel sessions took the disk to under 200 MB on 10/26. Under ~5 GB free, stop and clean up first.
+- Serialize builds with the mkdir lock `/private/tmp/claude-502/mvn-build.lock` (`mkdir` to take it,
+  `rmdir` when done; check its age with `ls -ld` before assuming it is held).
+- A shared test-compile one session breaks (e.g. a bad QuoteTest) wipes `target/test-classes` for
+  everyone — compile before you leave the shared tree broken, and fix or revert at once.
+- When the lender is done, verify every added line is in the shared checkout, then delete its worktrees
+  and `~/.m2/**/<ver>-<TAG>-SNAPSHOT`. Not before.
 
 ## STEP 5 — CHECKPOINT 1 (review before push)
 
 ```bash
 git -C "$MOSO_REPO_ROOT/moso-pricing" diff --stat HEAD~<N>   # N = number of new-parser commits this run made
 ```
-Show the diff stat and the final test results from Step 4. `AskUserQuestion`:
+Show the diff stat, the final test results from Step 4, and the final `parser-reviewer` verdict
+(table + report path). Never ask to push — or report the lender done — while there is no final review,
+the verdict is REJECT, or it has open QUESTIONs or unresolved contested findings for Trung.
+`AskUserQuestion`:
 > "Implementation done for <Lender> — <N> sub-tasks, tests passing. Review the diff above. Push?"
 > - "Yes — push now"
 > - "Let me look first — show me the full diff"
@@ -258,7 +298,7 @@ Next: /onboard-lender next   (picks up the next team's-list row with no ticket)
 3. **Never push on an earlier, broader approval.** Checkpoint 1 is its own ask every single run.
 4. **Never invent a staging-deploy step.** If you don't know how this user deploys staging, don't guess a command — ask them to do it and wait.
 5. **A `? new` vocabulary program (surfaced by `/parser-task-builder`'s scope gate) doesn't get silently dropped from the final report** — list it as blocked/excluded, same as any other open item.
-6. **Recon findings are advisory, not a hard stop**, except missing ratesheet/guideline — an unregistered LenderType is worth flagging loudly (Step 2) but the ticket is still real groundwork, so don't refuse to continue over it; that mirrors `/parser-task-builder`'s own Step 1 behavior.
+6. **Recon findings are advisory, not a hard stop**, except missing ratesheet/guideline and an existing LenderType whose source differs from the new sheet (1a — ask "new or replace?") — an unregistered LenderType is worth flagging loudly (Step 2) but the ticket is still real groundwork, so don't refuse to continue over it; that mirrors `/parser-task-builder`'s own Step 1 behavior.
 
 
 ## Shared document reuse (onboarding and later investigations)

@@ -1,6 +1,6 @@
 ---
 name: sync
-description: Pull latest, sync agents, skills, and knowledge (cookbook, pricing, feedback memories) into the repo. Add-only, no deletes. Commit and push.
+description: Pull latest, sync agents, skills, and all memory files (knowledge) into the repo. Add-only, no deletes. Commit and push.
 allowed-tools: Bash, Read, Glob, Grep
 ---
 
@@ -61,6 +61,8 @@ Compare `~/.claude/skills/` with `$REPO_CLAUDE/skills/`. For each skill director
 cd ~/.claude/skills
 for d in */; do
   skill="${d%/}"
+  # synced/ is Claude's own marketplace skill cache, not ours — never sync it
+  [ "$skill" = "synced" ] && continue
   if [ ! -d "$REPO_CLAUDE/skills/$skill" ]; then
     cp -r "$skill" "$REPO_CLAUDE/skills/$skill"
     echo "NEW: skills/$skill"
@@ -77,59 +79,46 @@ for d in */; do
 done
 ```
 
-### Step 4: Sync knowledge (cookbooks, pricing, feedback)
+### Step 4: Sync knowledge (all memory files)
 
-Sync important memory files from project memory into `$REPO_CLAUDE/knowledge/`.
+Sync **every** `.md` file in the project memory dir into `$REPO_CLAUDE/knowledge/`.
 
-**Knowledge files to sync** (add-only, never delete):
-
-| Source (project memory) | Purpose |
-|------------------------|---------|
-| `MEMORY.md` | **Master index** — tells Claude what memories exist (CRITICAL) |
-| `parser_fix_cookbook.md` | Fix-parser tier history, cached paths, fix patterns |
-| `parser_build_cookbook.md` | New-parser build history, table patterns, similar lenders |
-| `parser_pricing_knowledge.md` | Pricing domain knowledge, common mistakes |
-| `feedback_*.md` | User preferences (commit style, review rules, etc.) |
-| `ai_parser_workflow.md` | Parser workflow knowledge |
-| `project_architecture.md` | Architecture understanding |
-| `jira_access.md` | How to access Jira API |
+`MEMORY.md` is the master index and is loaded into context on every session — if it ships
+without the files it links to, the other machine sees an index of memories that do not exist.
+So the rule is: whatever `MEMORY.md` can link to, gets pushed. No allow-list of prefixes.
 
 ```bash
 REPO_CLAUDE="/Users/trungthach/IdeaProjects/tools/.claude"
 MEMORY_DIR="$HOME/.claude/projects/-Users-trungthach-IdeaProjects/memory"
 mkdir -p "$REPO_CLAUDE/knowledge"
 
-# Sync specific knowledge files
-for f in MEMORY.md parser_fix_cookbook.md parser_build_cookbook.md parser_pricing_knowledge.md ai_parser_workflow.md project_architecture.md jira_access.md; do
-  if [ -f "$MEMORY_DIR/$f" ]; then
-    if [ ! -f "$REPO_CLAUDE/knowledge/$f" ]; then
-      cp "$MEMORY_DIR/$f" "$REPO_CLAUDE/knowledge/$f"
-      echo "NEW: knowledge/$f"
-    elif ! diff -q "$MEMORY_DIR/$f" "$REPO_CLAUDE/knowledge/$f" > /dev/null 2>&1; then
-      cp "$MEMORY_DIR/$f" "$REPO_CLAUDE/knowledge/$f"
-      echo "UPDATED: knowledge/$f"
-    else
-      echo "UNCHANGED: knowledge/$f"
-    fi
-  fi
-done
-
-# Sync all feedback_*.md files
-for f in "$MEMORY_DIR"/feedback_*.md; do
-  if [ -f "$f" ]; then
-    fname=$(basename "$f")
-    if [ ! -f "$REPO_CLAUDE/knowledge/$fname" ]; then
-      cp "$f" "$REPO_CLAUDE/knowledge/$fname"
-      echo "NEW: knowledge/$fname"
-    elif ! diff -q "$f" "$REPO_CLAUDE/knowledge/$fname" > /dev/null 2>&1; then
-      cp "$f" "$REPO_CLAUDE/knowledge/$fname"
-      echo "UPDATED: knowledge/$fname"
-    else
-      echo "UNCHANGED: knowledge/$fname"
-    fi
+for f in "$MEMORY_DIR"/*.md; do
+  [ -f "$f" ] || continue
+  fname=$(basename "$f")
+  if [ ! -f "$REPO_CLAUDE/knowledge/$fname" ]; then
+    cp "$f" "$REPO_CLAUDE/knowledge/$fname"
+    echo "NEW: knowledge/$fname"
+  elif ! diff -q "$f" "$REPO_CLAUDE/knowledge/$fname" > /dev/null 2>&1; then
+    cp "$f" "$REPO_CLAUDE/knowledge/$fname"
+    echo "UPDATED: knowledge/$fname"
+  else
+    echo "UNCHANGED: knowledge/$fname"
   fi
 done
 ```
+
+**Add-only** — never delete from `$REPO_CLAUDE/knowledge/`.
+
+Then verify the index has no dangling links before committing:
+
+```bash
+grep -oE '\]\(([^)]+\.md)\)' "$REPO_CLAUDE/knowledge/MEMORY.md" | sed 's/.*(\(.*\))/\1/' | while read -r link; do
+  [ -f "$REPO_CLAUDE/knowledge/$(basename "$link")" ] || echo "MISSING: $link"
+done
+```
+
+If anything prints `MISSING:`, report it — the index links a memory that does not exist on this
+machine either, so it should be removed from `MEMORY.md` rather than shipped broken.
 
 ### Step 5: Check for changes
 ```bash

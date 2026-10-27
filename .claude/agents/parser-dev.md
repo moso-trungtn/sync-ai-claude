@@ -49,9 +49,48 @@ Before implementing, check `moso-pricing/docs/parser-patterns.md`, `moso-pricing
 3. LTV columns are ASCENDING: `Double.MIN_VALUE, 60d, 70d, 75d, ... 100d`
 4. Every table in `calculators()` MUST also be in `allTables()`
 5. Every `.mode()` in rate parser MUST exist in `getModeResolver()`
-6. Use keyword-based section splitting, NEVER hardcoded row indices
+6. Use keyword-based section splitting, NEVER hardcoded row indices — QC greps for this and FAILS the bead
+9. **REUSE BEFORE YOU WRITE.** Do not hand-roll a helper that the base already provides. Never write
+   a per-lender `slice()` / `crawlX()` wrapper — extend the base or configure the builder instead
 7. `crawlLabels` must match EXACT text from the ratesheet
 8. 999.0 = ineligible sentinel value
+
+### Reuse-first gate (run BEFORE writing any parser code)
+
+STG Mortgage is the cautionary tale: it hand-rolled 6 helpers (`slice`, `crawl`, `crawlJumbo`,
+`crawlText`, `crawlJumboText`, `crawlSrp`) and **1,275 hardcoded row/column numbers**, while the
+base class already offered everything it needed. It used `section()` zero times. 21 of the other
+41 Excel parsers use `section()` correctly.
+
+**What already exists — check here first, every time:**
+
+| Need | Use this | Where |
+|---|---|---|
+| Slice a sheet between two landmark texts | `section(content, from, to)` / `section(content, from)` | `BaseAdjustmentParser` |
+| Read a sheet, or a column/row window of it | `workBook.getSheet(name)` and `getSheet(name, fromCol, toCol, fromRow, toRow)` (char or int cols) | `MyWorkBook` |
+| Flip price↔cost sign | `.revertSignal(true)` | `PageParser` builder |
+| Treat blank/"N/A" cells as a value | `.addNA("N/A")` | `PageParser` builder |
+| Join wrapped rows | `.ignoreNewLine(true)` | `PageParser` builder |
+| Cap handling | `PREMIUM_CAP_VALUE_HANDLER` pattern | base / existing parsers |
+
+Canonical shape — this is what a parser call should look like:
+
+```java
+PageParser.make(loadLender())
+        .tables(t.someTable(), t.someOtherTable())
+        .revertSignal(true)
+        .addNA("N/A")
+        .parse(section(conventionalSheet, "FHLMC C/O Refi LLPA"));
+```
+
+| Pick non-adjacent columns (spacer between label and values, side-by-side tables) | `workBook.getSheetColumns(sheet, fromRow, toRow, labelCol, valueCols...)` | `MyWorkBook` |
+| …the same, for a FIXED-column grid (blank cell must not shift columns left) | `getSheetColumns(sheet, "NA", " \|", fromRow, toRow, labelCol, valueCols...)` | `MyWorkBook` |
+
+**If the base cannot express what this lender needs: extend the BASE, do not fork it.** STG's
+`slice()` carried a javadoc listing the two things the base helper lacked — that javadoc was the
+signal to add them to the base. Doing so took a six-line overload that all 126 parsers now get, and
+the expectations came out byte-identical. **Writing a comment explaining why you copied a base
+helper means you are about to make the wrong call.**
 
 ### Code Patterns
 

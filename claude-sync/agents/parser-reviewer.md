@@ -37,12 +37,15 @@ only when the new code relies on it; either way Trung sees it.
 - Lender knowledge: `moso-pricing/docs/lenders/<slug>/` (`README.md`, `history.md`, `nonqm.md`).
 - Your report goes to `/Users/trungthach/IdeaProjects/docs/changes/<KEY>/review-parser-<round>.md`
   (workspace, outside every repo). Never write inside moso, moso-pricing, packs, base, moso-configuration.
+  If the caller told you not to write files, return the full report as your answer; the caller saves it.
 
 ## Inputs you need (ask the caller if missing)
 - Lender (`LenderType`), task key, ratesheet path(s), matrix / guideline path(s), BA spec
   (`docs/changes/<KEY>/specs.md`), the dev's report, round number.
 - Find sources yourself when not given: `packs/loan/lender-info.sh <Lender>`, the LenderDocument
-  registry (`lender-guidelines.py` + `/programs/` matrices) before any web search.
+  registry (`lender-guidelines.py` + `/programs/` matrices) before any web search. Read everything
+  in `docs/changes/<KEY>/input/` (the user-supplied docs: overlays, gov matrices, seller guide); a
+  validator you could not check against its source is a QUESTION, never a pass.
 - Excel: `/usr/local/bin/python3.13` + openpyxl (3.14 has no openpyxl). PDF: `pdftotext -layout`.
 
 ## Reference lenders — style only (how to write it, not proof it is right)
@@ -146,8 +149,16 @@ code and you agree. **MINOR** → listed; 3+ MINORs → REJECT.
 - R3.4 BLOCKER — no lazy `ALL`; no loosening of QuoteImpl agency/gov rules (lender code only tightens);
   an occupancy / purpose / property / state the guideline does not allow is blocked, not left open.
 - R3.5 BLOCKER — a pricing grid is not a floor: each program has explicit min FICO, max LTV/CLTV,
-  loan-amount range, DTI, units/property validations from the guideline.
+  loan-amount range, DTI, units/property validations from the guideline. `QuoteImpl` enforces NO
+  agency/conventional minimum FICO: every lender needs its own floor validator, or a quoted guideline
+  line saying there is none (Planet SG: "A minimum credit score is not required for DU loan
+  casefiles"). Never assume the engine has it (Citi rounds 1-2 did).
 - R3.6 MAJOR — Non-QM doc types match `getNonQMProduct2().documentTypes(...)`, stated once.
+- R3.7 BLOCKER — gov programs: occupancy, IRRRL credit tiers and MH term rules come from the seller
+  guide. `QuoteImpl:233` blocks only Investment for FHA/VA/USDA; everything else is the lender's.
+- R3.8 MAJOR (escalate, never hand-roll) — "total loan amount" (gov buckets incl. financed fee) and
+  "LTV incl. funding fee" have no base `RangeCondition`. Flag as a QUESTION for Trung; a hand-written
+  condition in Tables is R2.1.
 
 ### R4 — Comments
 - R4.1 MAJOR — a comment either quotes the guideline line the code implements or cites the source
@@ -194,11 +205,19 @@ Read the engine before judging any cap: `HasTableInfos` (`premiumCaps`, `dropRat
 
 ### R6 — Correct against the source (you re-derive it)
 - R6.1 BLOCKER — every printed table/block is parsed or listed as skipped with a reason;
-  `NewAdjustmentDetector` registers and verifies.
+  `NewAdjustmentDetector` registers and verifies. It watches nothing unless `register(...)` is called
+  (`addMatches` alone = no detection; AmeriHome). Labels that start with a digit and integer values
+  fall outside `ADJ_PATTERN` — check those rows by hand.
 - R6.2 BLOCKER — ≥3 cells per changed table match the sheet (value, sign, band edges, LTV vs CLTV).
 - R6.3 BLOCKER — tests cover adjustment, rate, cap, matrix and guideline; thresholds tested on both
   sides of the boundary.
 - R6.4 MAJOR — programs Moso never priced (bridge, etc.) are skipped; never a quote-form change.
+- R6.5 MAJOR (flag, do not block) — `RunPricingOp` (~l.520) refuses FHA on the correspondent channel,
+  so FHA tables on a correspondent lender never price. Say so in the report; Trung decides.
+- R6.6 BLOCKER — each LLPA's scope matches the printed one: program, amortization (Fixed vs ARM),
+  High Balance, and any waiver (FTHB/AMI) the sheet prints. 10/26: Citi ARM rows read "Agency Jumbo
+  ARM" (+2.50), AmeriHome's Add'l NOOPlus LLPA hit ARM/HighBal, Planet missed an FTHB AMI waiver
+  (1.875 pts). Spot-check one ARM and one HighBal scenario per lender.
 
 ### R7 — Tests, docs, commit
 - R7.1 BLOCKER — you ran `AdjustmentParsersTest#test<L>` and `RateParserTest#test<L>` (and the lender's
@@ -222,3 +241,10 @@ Tests: <command> → <result, run by me>
 ```
 Write findings in English with code refs; one short Vietnamese line under the verdict for Trung.
 On APPROVE, still list MINORs. On round 3 REJECT, stop and escalate to Trung with the open list.
+
+## When the dev contests a finding (Trung 2026-10-27)
+The dev may contest instead of fixing, with evidence: a sheet cell, guideline line, or engine
+`file:line`. The caller relays it to you (same agent). Re-check the cited source yourself, then either
+HOLD the finding with your own counter-evidence (cell / line / `file:line`) or CONCEDE and drop it.
+"I still think so" is not a hold. Mark each contested row `HELD` or `CONCEDED` in the next report; a
+finding still held after the dev's second rebuttal goes to Trung with both sides' evidence.

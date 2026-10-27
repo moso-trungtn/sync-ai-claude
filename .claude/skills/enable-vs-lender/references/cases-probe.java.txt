@@ -1,0 +1,114 @@
+// TEMPLATE (kept as .txt so it does not compile). Copy to packs/loan/src/test/java/com/mvu/loan/parity/VantageCasesProbeTest.java,
+// run it once, read the table it writes, then DELETE the class and target/test-classes/.../VantageCasesProbeTest*.class.
+// Purpose: give the user test cases whose expected labels were computed by the engine, never guessed.
+//
+// Adapt: LENDER, SHEETS (RatesheetFiles constants, newest last), the modes the lender's ModeResolver returns for the loan
+// sizes you probe (read getModeResolver() in the lender's *Tables; a mode with no seeded rate row gives rows=0), and SCENARIOS.
+//
+// Run:  cd packs/loan && mvn -o -q test -Dtest=VantageCasesProbeTest -DfailIfNoTests=false -Dgwt.compiler.skip=true > /dev/null 2>&1
+// (wait until `find target/classes -name '*.class' | wc -l` is stable, about 10.7k, or testCompile fails on the IDE race)
+
+package com.mvu.loan.parity;
+
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.TreeSet;
+
+import com.mosopricing.server.op.parser.adjustment.PennyMacAdjustmentXlsxParser; // the lender's adjustment parser
+import com.mvu.core.server.JSON;
+import com.mvu.core.shared.HasValues;
+import com.mvu.loan.AdjustmentParsersTest;
+import com.mvu.loan.BaseQuoteTest;
+import com.mvu.loan.QuoteTestBase;
+import com.mvu.loan.RatesheetFiles;
+import com.mvu.loan.RatesheetLoader;
+import com.mvu.loan.builder.QuoteUserTester;
+import com.mvu.loan.shared.entity.Quote;
+import com.mvu.quote.shared.entity.Rate;
+import com.mvu.quote.shared.typekey.LenderType;
+import com.mvu.quote.shared.typekey.LoanCategory;
+import com.mvu.quote.shared.typekey.LoanType;
+import com.mvu.quote.shared.typekey.OccupancyType;
+import com.mvu.quote.shared.typekey.PurposeType;
+import com.mvu.quote.shared.typekey.RateMode;
+import org.junit.jupiter.api.Test;
+
+public class VantageCasesProbeTest extends QuoteTestBase {
+
+  private static final String PROGRAM = "30-Yr Fixed";
+  private static final LenderType LENDER = LenderType.PennyMac;
+  private static final String OUT = "<scratchpad>/cases.txt";
+
+  private static JSON profile(int creditScore, double loan, double value, OccupancyType occupancy, boolean lpmi) {
+    return BaseQuoteTest.SAMPLE_QUOTE.copy()
+            .set(Quote.loan_amount, loan).set(Quote.property_value, value)
+            .set(Quote.purpose, PurposeType.PM).set(Quote.occupancy, occupancy).set(Quote.mi_paid_by_lender, lpmi)
+            .set(Quote.loan_type, LoanType.Conventional).set(Quote.loan_program, PROGRAM)
+            .set(Quote.lock_period, 30).set(Quote.credit_score, creditScore).set(Quote.zip, 95132L);
+  }
+
+  /** What the quote form sends: the credit score picked is also the VantageScore, flagged as an assumption. */
+  private static JSON quoteForm(JSON p) {
+    return p.set(Quote.vantage_score, p.get(Quote.credit_score)).set(Quote.vantage_assumed, true);
+  }
+
+  /** A loan with its own VantageScore: the quote still carries the pulled FICO band, no assumption flag. */
+  private static JSON realVantage(JSON p, int vantage) {
+    return p.set(Quote.vantage_score, vantage);
+  }
+
+  private static void seed(String sheet) throws Exception {
+    new QuoteUserTester().loginSu();
+    new PennyMacAdjustmentXlsxParser().parseInputStream(RatesheetLoader.open(AdjustmentParsersTest.class, sheet));
+    String[] modes = {null, RateMode.LA_GT400k, RateMode.LA_300k_325k, RateMode.INVESTMENT_MODE + RateMode.LA_GT400k,
+            RateMode.MODE_FICO_LT_700 + RateMode.LA_GT400k};
+    for (double rate : new double[]{6.0, 6.125, 6.25}) {
+      for (String mode : modes) {
+        EngineOracleExporterTest.seedRateRow(rate, 0.0, 30, PROGRAM, LENDER, LoanType.Conventional, LoanCategory.Conforming, mode);
+      }
+    }
+  }
+
+  private static double minCostAt(Map<Double, List<HasValues>> groups, double rate) {
+    List<HasValues> rows = groups.get(rate);
+    return rows == null ? Double.NaN : rows.stream().mapToDouble(r -> r.get(Rate.total_cost)).min().orElse(Double.NaN);
+  }
+
+  private static String labels(Map<Double, List<HasValues>> groups) {
+    TreeSet<String> labels = new TreeSet<>();
+    groups.values().forEach(rows -> rows.forEach(r -> {
+      Object b = r.getRaw(Rate.CREDIT_MODEL_BETTER);
+      labels.add(b == null ? "none" : b.toString());
+    }));
+    return labels.toString();
+  }
+
+  private static String line(String name, JSON asked, JSON ficoOnly) {
+    Map<Double, List<HasValues>> shown = new VantageTwoPassTest.Seam().run(asked, LENDER);
+    Map<Double, List<HasValues>> fico = new VantageTwoPassTest.Seam().run(ficoOnly, LENDER);
+    long onVs = shown.values().stream().flatMap(List::stream).filter(r -> r.getRaw(Rate.CREDIT_MODEL) != null).count();
+    long rows = shown.values().stream().mapToLong(List::size).sum();
+    return String.format("%-52s rows=%2d labels=%-22s onVantage=%2d cost@6.0 shown=%9.3f ficoOnly=%9.3f delta=%7.3f",
+            name, rows, labels(shown), onVs, minCostAt(shown, 6.0), minCostAt(fico, 6.0), minCostAt(fico, 6.0) - minCostAt(shown, 6.0));
+  }
+
+  @Test
+  public void print() throws Exception {
+    List<String> out = new ArrayList<>();
+    // Probe BOTH the sheet the user's local datastore holds and the newest one: grids can change between them.
+    for (String sheet : new String[]{RatesheetFiles.PENNY_MAC_20261001, RatesheetFiles.PENNY_MAC_20261006}) {
+      seed(sheet);
+      out.add("=== sheet " + sheet);
+      double v80 = 430000d / 0.8;
+      JSON p = profile(719, 430000d, v80, OccupancyType.Owner, false);   // credit score = the form's band key (upper bound)
+      out.add(line("430k LTV80 owner band 719, quote form", quoteForm(p.copy()), p.copy()));
+      out.add(line("430k LTV80 FICO 719 + real VS 770", realVantage(p.copy(), 770), p.copy()));
+      // ... add the lender's own edges: under the minimum score, investment, LPMI, a loan under/over the credit-grid threshold
+    }
+    Files.write(Paths.get(OUT), String.join("\n", out).getBytes(StandardCharsets.UTF_8));
+  }
+}

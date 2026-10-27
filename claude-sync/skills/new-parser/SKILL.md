@@ -28,7 +28,11 @@ constant (`packs/quote/src/main/java/com/mvu/quote/shared/typekey/LenderType.jav
 the Adjustments/Rate buttons and `has_rate_qm`/`has_rate_non_qm` toggles on its Lender record
 do anything. That's a **developer-only, code + deploy** step — a new constant appended to the
 **bottom** of the enum only (ordinals are persisted in the DB; inserting mid-list previously
-misrouted a live lender in production — MOSO-16335, NewRez resolved as AmWest). If the BA
+misrouted a live lender in production — MOSO-16335, NewRez resolved as AmWest). When parallel
+sessions each append a constant from an isolated copy, take the ordinal for
+`packs/loan/src/test/resources/lender-type-order.txt` from the enum order in the SHARED checkout at
+port time, never from the isolated copy, and re-check it after the port (10/26: Citi and Rocket both
+claimed 142). If the BA
 research phase (Step 1) can't find the lender in that file, flag it and stop rather than
 implementing against an enum entry that doesn't exist yet.
 
@@ -615,10 +619,15 @@ report, the base commit for the diff, round number. Do NOT paste the dev's concl
 
 - `VERDICT: APPROVE` → Step 5 (QC).
 - `VERDICT: REJECT` → re-spawn `parser-dev` with the reviewer's findings table verbatim as the fix
-  list, then re-run this step (round n+1). The dev may not argue a finding away; it either fixes it or
-  writes the one-line justification R2.4 / MAJOR allows, and the reviewer decides.
-- Round 3 still REJECT, a `QUESTION` for Trung, or a diff that adds a shared base helper → stop the
-  pipeline and show Trung the report.
+  list, then re-run this step (round n+1). The dev either fixes a finding, writes the one-line
+  justification R2.4 / MAJOR allows, or CONTESTS it with evidence (a sheet cell, guideline line, or
+  engine `file:line` — opinion is not evidence). Relay a contest to the SAME reviewer agent
+  (`SendMessage`), which holds the finding with its own evidence or concedes; only surviving findings go
+  to the dev. A finding both sides still hold goes to Trung with both sides' evidence.
+- If the reviewer was told not to write files, save its full report text yourself to
+  `docs/changes/<KEY>/review-parser-<n>.md`.
+- Round 3 still REJECT, a `QUESTION` for Trung, an unresolved contest, or a diff that adds a shared
+  base helper → stop the pipeline and show Trung the report.
 
 QC never runs on code the reviewer has not approved.
 

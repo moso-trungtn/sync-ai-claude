@@ -5,3 +5,6 @@ __pycache__/
 
 # SDD scratch workspaces (ledgers, briefs, review packages)
 .superpowers/
+
+# Claude-managed marketplace skill cache — not ours
+.claude/skills/synced/
